@@ -1,5 +1,0 @@
-Platform,Architecture,Size,Type
-macOS,x86_64,30.3 MB,Binary
-macOS,ARM64,TBD,Binary
-Windows,x86_64,3.3 KB,Batch Script
-Linux,x86_64,TBD,Future Support

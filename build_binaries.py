@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Build script to create binaries for DocuGenius
-Supports both macOS and Windows binary creation
+Build script to create executables for DocuGenius
+Creates native binary for macOS and batch script for Windows
 """
 
 import os
@@ -419,22 +419,13 @@ if __name__ == "__main__":
     return cli_source
 
 def create_darwin_binary():
-    """Create macOS Universal Binary using PyInstaller (supports both Intel and Apple Silicon)"""
-    print("🔨 Building DocuGenius macOS Universal Binary")
-    print("=" * 50)
+    """Create macOS binary using PyInstaller"""
+    print("Building DocuGenius macOS binary...")
 
     # Detect current architecture
     import platform
     current_arch = platform.machine()
-    print(f"🏗️  Current system architecture: {current_arch}")
-    if current_arch == "arm64":
-        print("   (Apple Silicon - ARM64)")
-    elif current_arch == "x86_64":
-        print("   (Intel - x86_64)")
-    else:
-        print(f"   (Unknown architecture: {current_arch})")
-    
-    print("🎯 Target: Universal Binary (Intel + Apple Silicon)")
+    print(f"Current system architecture: {current_arch}")
 
     # Create temporary CLI source file
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
@@ -447,43 +438,35 @@ def create_darwin_binary():
         if os.path.exists(env_dir):
             shutil.rmtree(env_dir)
 
-        print(f"📦 Creating build environment: {env_dir}")
+        print(f"Creating build environment: {env_dir}")
         success, _, _ = run_command(f"python3 -m venv {env_dir}")
         if not success:
-            print("❌ Failed to create virtual environment")
+            print("Failed to create virtual environment")
             return False
 
         # Install PyInstaller and document processing libraries
-        print("📥 Installing PyInstaller and document libraries...")
+        print("Installing PyInstaller and document libraries...")
         install_cmd = f"source {env_dir}/bin/activate && pip install pyinstaller python-docx python-pptx openpyxl pdfplumber"
         success, _, _ = run_command(install_cmd)
 
         if not success:
-            print("❌ Failed to install required libraries")
+            print("Failed to install required libraries")
             return False
 
-        # Build the executable with universal binary support
-        print("🔨 Building Universal Binary executable...")
-        # Use --target-arch=universal2 for universal binary support
-        build_cmd = f"source {env_dir}/bin/activate && python -m PyInstaller --onefile --name docugenius-cli --target-arch=universal2 --strip --optimize=2 {cli_file}"
-
+        # Build the executable
+        print("Building executable...")
+        build_cmd = f"source {env_dir}/bin/activate && python -m PyInstaller --onefile --name docugenius-cli --strip --optimize=2 {cli_file}"
         success, stdout, stderr = run_command(build_cmd, capture_output=False)
-
+        
         if not success:
-            print("⚠️  Universal binary build failed, falling back to current architecture...")
-            # Fallback to current architecture if universal build fails
-            build_cmd = f"source {env_dir}/bin/activate && python -m PyInstaller --onefile --name docugenius-cli --strip --optimize=2 {cli_file}"
-            success, stdout, stderr = run_command(build_cmd, capture_output=False)
-            
-            if not success:
-                print("❌ Failed to build executable")
-                return False
+            print("Failed to build executable")
+            return False
 
         # Check if the executable was created
         exe_path = "dist/docugenius-cli"
 
         if not os.path.exists(exe_path):
-            print("❌ Executable not found after build")
+            print("Executable not found after build")
             return False
 
         # Create the bin/darwin directory if it doesn't exist
@@ -496,24 +479,8 @@ def create_darwin_binary():
         shutil.copy2(exe_path, target_path)
         os.chmod(target_path, 0o755)
 
-        # Check if it's a universal binary
-        try:
-            result = subprocess.run(["lipo", "-info", str(target_path)], capture_output=True, text=True)
-            if "Architectures in the fat file" in result.stdout:
-                print(f"✅ Universal Binary created: {target_path}")
-                print(f"🏗️  Supported architectures: {result.stdout.split(':')[-1].strip()}")
-            else:
-                arch_info = result.stdout.strip().split()[-1] if result.stdout else "unknown"
-                print(f"✅ Single architecture binary created: {target_path}")
-                print(f"🏗️  Architecture: {arch_info}")
-                if current_arch == "x86_64" and arch_info == "x86_64":
-                    print("ℹ️  Note: This binary will work on Apple Silicon via Rosetta 2")
-                elif current_arch == "arm64" and arch_info == "arm64":
-                    print("ℹ️  Note: This binary is optimized for Apple Silicon")
-        except Exception as e:
-            print(f"⚠️  Could not verify binary architecture: {e}")
-
-        print(f"📊 File size: {os.path.getsize(target_path) / (1024*1024):.1f} MB")
+        print(f"Binary created: {target_path}")
+        print(f"File size: {os.path.getsize(target_path) / (1024*1024):.1f} MB")
 
         # Clean up build artifacts
         cleanup_dirs = ['build', 'dist', env_dir]
@@ -521,11 +488,11 @@ def create_darwin_binary():
             if os.path.exists(dir_name):
                 shutil.rmtree(dir_name)
 
-        print("🧹 Cleaned up build artifacts")
+        print("Cleaned up build artifacts")
         return True
 
     except Exception as e:
-        print(f"❌ Failed to create binary: {e}")
+        print(f"Failed to create binary: {e}")
         return False
     finally:
         # Clean up temporary file
@@ -534,8 +501,7 @@ def create_darwin_binary():
 
 def create_windows_batch():
     """Create Windows batch file"""
-    print("🔨 Creating DocuGenius Windows Batch File")
-    print("=" * 40)
+    print("Creating DocuGenius Windows batch file...")
 
     # Create the bin/win32 directory if it doesn't exist
     win32_dir = Path("bin/win32")
@@ -610,17 +576,16 @@ exit /b %RESULT%
         with open(target_path, 'w') as f:
             f.write(batch_content)
 
-        print(f"✅ Windows batch file created: {target_path}")
-        print(f"📊 File size: {os.path.getsize(target_path)} bytes")
+        print(f"Windows batch file created: {target_path}")
+        print(f"File size: {os.path.getsize(target_path)} bytes")
         return True
 
     except Exception as e:
-        print(f"❌ Failed to create batch file: {e}")
+        print(f"Failed to create batch file: {e}")
         return False
 
 def main():
-    print("🚀 DocuGenius Binary Builder")
-    print("=" * 50)
+    print("DocuGenius Binary Builder")
 
     platform = sys.platform
 
@@ -635,14 +600,14 @@ def main():
         if platform == "darwin" or target != "all":
             success &= create_darwin_binary()
         else:
-            print("⚠️  Skipping macOS binary (not on macOS)")
+            print("Skipping macOS binary (not on macOS)")
 
     if target in ["all", "windows", "win32"]:
         success &= create_windows_batch()
 
     if success:
-        print("\n🎉 Binary build completed successfully!")
-        print("\n📁 Generated files:")
+        print("\nBinary build completed successfully!")
+        print("\nGenerated files:")
         if os.path.exists("bin/darwin/docugenius-cli"):
             size = os.path.getsize("bin/darwin/docugenius-cli") / (1024*1024)
             print(f"   - bin/darwin/docugenius-cli ({size:.1f} MB)")
@@ -650,7 +615,7 @@ def main():
             size = os.path.getsize("bin/win32/docugenius-cli.bat")
             print(f"   - bin/win32/docugenius-cli.bat ({size} bytes)")
     else:
-        print("\n💥 Build failed!")
+        print("\nBuild failed!")
         sys.exit(1)
 
 if __name__ == "__main__":
