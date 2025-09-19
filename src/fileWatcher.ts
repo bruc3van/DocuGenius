@@ -33,19 +33,18 @@ export class FileWatcher implements vscode.Disposable {
         // Dispose existing watchers
         this.disposeWatchers();
 
-        // Only initialize watchers if auto-convert is enabled
-        if (!this.configManager.isAutoConvertEnabled()) {
-            console.log('File watcher disabled - auto-convert is turned off');
-            return;
-        }
-
-        // Check if project is enabled for auto-conversion
-        if (!this.projectManager.isProjectEnabled()) {
+        const projectEnabled = this.projectManager.isProjectEnabled();
+        if (!projectEnabled) {
             console.log('File watcher disabled - project not enabled for DocuGenius');
             return;
         }
 
-        console.log('Initializing file watchers for auto-conversion');
+        const autoConvertEnabled = this.configManager.isAutoConvertEnabled();
+        if (autoConvertEnabled) {
+            console.log('Initializing file watchers for auto-conversion');
+        } else {
+            console.log('Initializing file watchers for cleanup only (auto-convert disabled)');
+        }
 
         // Create watchers for supported file types
         const supportedExtensions = this.configManager.getSupportedExtensions();
@@ -103,9 +102,22 @@ export class FileWatcher implements vscode.Disposable {
                 return;
             }
 
+            const projectEnabled = this.projectManager.isProjectEnabled();
+            if (!projectEnabled) {
+                console.log(`Ignoring file event (project disabled): ${filePath}`);
+                return;
+            }
+
+            const autoConvertEnabled = this.configManager.isAutoConvertEnabled();
+
             if (eventType === 'deleted') {
-                // Handle file deletion
+                // Handle file deletion even when auto-convert is disabled
                 await this.converter.handleFileDeleted(filePath);
+                return;
+            }
+
+            if (!autoConvertEnabled) {
+                console.log(`Auto-convert disabled - skipping ${eventType} event for ${fileName}`);
                 return;
             }
 
@@ -153,10 +165,10 @@ export class FileWatcher implements vscode.Disposable {
 
         // Ask for confirmation for document conversion
         const choice = await vscode.window.showInformationMessage(
-            `📄 检测到新文件: ${fileName}`,
+            `检测到新文件: ${fileName}`,
             {
                 modal: true,
-                detail: `是否要将此文档转换为 Markdown 格式？\n\n文件类型: ${fileExtension.toUpperCase()}\n转换后将保存到 "${this.configManager.getMarkdownSubdirectoryName()}" 文件夹中。`
+                detail: `是否转换此文档为 Markdown 格式？`
             },
             '立即转换',
             '跳过',

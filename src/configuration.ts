@@ -26,7 +26,7 @@ export class ConfigurationManager {
         
         // Fall back to global config
         const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('autoConvert', false);
+        return config.get<boolean>('autoConvert', true);
     }
 
     /**

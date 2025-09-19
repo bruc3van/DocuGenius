@@ -73,19 +73,32 @@ export class MarkitdownConverter {
 
             // Show progress
             const fileName = path.basename(filePath);
-            vscode.window.withProgress({
+            let conversionAborted = false;
+            let abortMessage: string | undefined;
+
+            await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: `Converting ${fileName} ...`,
                 cancellable: false
             }, async (progress) => {
-                progress.report({ increment: 0 });
-                
+                // Use message-only updates so the indicator shows continuous motion
+                progress.report({ message: 'Preparing...' });
+
                 try {
                     // Convert using built-in conversion engine
                     const markdownContent = await this.callConverter(filePath);
-                    
-                    progress.report({ increment: 50 });
-                    
+
+                    const hasContent = markdownContent.replace(/\s+/g, '').length > 0;
+                    if (!hasContent) {
+                        conversionAborted = true;
+                        abortMessage = `无法从 ${fileName} 中提取内容。该文件可能主要由图片组成或使用了暂不支持的格式，建议先转换为 Word 等可编辑格式后再尝试。`;
+                        this.statusManager.showConversionError(fileName, abortMessage);
+                        vscode.window.showWarningMessage(abortMessage);
+                        return;
+                    }
+
+                    progress.report({ message: 'Generating...' });
+
                     // Check if document splitting is needed
                     if (this.configManager.isDocumentSplittingEnabled() && 
                         markdownContent.length > this.configManager.getDocumentSplittingThreshold()) {
@@ -95,9 +108,9 @@ export class MarkitdownConverter {
                         // Save the markdown file as a single file
                         fs.writeFileSync(outputPath, markdownContent, 'utf8');
                     }
-                    
-                    progress.report({ increment: 100 });
-                    
+
+                    progress.report({ message: 'Finishing...' });
+
                     // Show success message with action buttons (if enabled and not in batch mode)
                     if (this.configManager.shouldShowSuccessNotifications() && !this.isBatchMode) {
                         vscode.window.showInformationMessage(
@@ -126,6 +139,13 @@ export class MarkitdownConverter {
                     throw error;
                 }
             });
+
+            if (conversionAborted) {
+                return {
+                    success: false,
+                    error: abortMessage || 'No content could be extracted from the document.'
+                };
+            }
 
             return { success: true, outputPath };
 
@@ -194,8 +214,7 @@ export class MarkitdownConverter {
                 if (this.configManager.shouldShowSuccessNotifications()) {
                     vscode.window.showInformationMessage(
                         `Successfully processed ${successCount} files!`,
-                        'Open Output Folder',
-                        'Show Details'
+                        'Open Output Folder'
                     ).then(selection => {
                         if (selection === 'Open Output Folder') {
                             // Open the kb folder
@@ -203,22 +222,16 @@ export class MarkitdownConverter {
                             if (fs.existsSync(kbFolder)) {
                                 vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(kbFolder));
                             }
-                        } else if (selection === 'Show Details') {
-                            // Show output panel with conversion details
-                            vscode.commands.executeCommand('workbench.action.output.toggleOutput');
                         }
                     });
                 }
             } else {
                 // Always show warnings, even if success notifications are disabled
                 vscode.window.showWarningMessage(
-                    `⚠️ Processed ${successCount} files successfully, ${failureCount} failed.`,
-                    'Show Details',
+                    `Processed ${successCount} files successfully, ${failureCount} failed.`,
                     'Open Output Folder'
                 ).then(selection => {
-                    if (selection === 'Show Details') {
-                        vscode.commands.executeCommand('workbench.action.output.toggleOutput');
-                    } else if (selection === 'Open Output Folder') {
+                    if (selection === 'Open Output Folder') {
                         const kbFolder = path.join(folderPath, this.configManager.getMarkdownSubdirectoryName());
                         if (fs.existsSync(kbFolder)) {
                             vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(kbFolder));
@@ -546,7 +559,7 @@ export class MarkitdownConverter {
 
         } catch (error) {
             console.error(`Error handling file deletion for ${filePath}:`, error);
-            this.statusManager.log(`❌ Error cleaning up deleted file ${path.basename(filePath)}: ${error}`);
+            this.statusManager.log(`Error cleaning up deleted file ${path.basename(filePath)}: ${error}`);
         }
     }
 

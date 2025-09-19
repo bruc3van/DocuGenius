@@ -15,7 +15,7 @@ export class ProjectManager {
     private static readonly CONFIG_FILE_NAME = '.docugenius.json';
     private static readonly DEFAULT_CONFIG: ProjectConfig = {
         enabled: false,
-        autoConvert: false,
+        autoConvert: true,
         markdownSubdirectoryName: 'DocuGenius',
         supportedExtensions: ['.docx', '.xlsx', '.pptx', '.pdf'],
         lastActivated: new Date().toISOString()
