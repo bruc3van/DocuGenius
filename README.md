@@ -74,7 +74,7 @@ DocuGenius 专为解决产品经理这些真实工作痛点而生！
 
 **方式一：插件商店直接安装（推荐）**
 
-1. 在 Trae AI、CodeBuddy 插件市场搜索 "DocuGenius"
+1. 在 Trae AI、CodeBuddy、VSCode插件市场搜索 "DocuGenius"
 2. 点击安装，自动完成
 
 **方式二：手动安装**
@@ -167,6 +167,10 @@ A: 文档转换过程完全本地化！DocuGenius 在你的电脑本地处理文
 
 A: DocuGenius 专注于文档转换功能，不支持预览 Office 文档和 PDF 文件，但这完全不影响 AI 理解和分析这些文档内容。如果你需要在 IDE 中预览这些文件，建议安装 **Office Viewer** 插件来获得完整的文档预览体验。
 
+### Q: Trae AI、CodeBuddy、Qoder、VSCode推荐用哪个？
+
+A: 如果有付费订阅trae，建议使用trae，如果用VSCode，要搭配 GitHub Copilot（也是一个插件）使用。每月50次免费问答，基于Claude sonnet 3.5。
+
 ## 🔧 系统要求
 
 - **Windows**: 需要 Python 3.6+（需要手动安装Python，依赖库将自动安装）
@@ -179,3 +183,8 @@ A: DocuGenius 专注于文档转换功能，不支持预览 Office 文档和 PDF
 **专业产品经理的AI编程工具知识库管理首选，让你的产品文档发挥最大价值！** 🚀
 
 > 💼 **专为产品经理打造**: DocuGenius 不仅仅是文档转换工具，更是产品经理在AI时代的专业工作伙伴。结合 Trae AI 等先进的AI编程工具，让你的产品管理工作更智能、更高效！
+
+## 🌐 作者社交与项目地址
+
+- X: https://x.com/brucevanfdm
+- GitHub: https://github.com/brucevanfdm

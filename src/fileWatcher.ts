@@ -102,6 +102,12 @@ export class FileWatcher implements vscode.Disposable {
                 return;
             }
 
+            // Ignore temporary files created by Office (e.g. "~$-Document.docx")
+            if (this.isTemporaryFile(fileName)) {
+                console.log(`Ignoring temporary file: ${filePath}`);
+                return;
+            }
+
             const projectEnabled = this.projectManager.isProjectEnabled();
             if (!projectEnabled) {
                 console.log(`Ignoring file event (project disabled): ${filePath}`);
@@ -226,6 +232,12 @@ export class FileWatcher implements vscode.Disposable {
         }
 
         return false;
+    }
+
+    private isTemporaryFile(fileName: string): boolean {
+        // Normalize to catch full-width characters used by some Office builds
+        const normalizedName = fileName.normalize('NFKC');
+        return normalizedName.startsWith('~$');
     }
 
     dispose(): void {
