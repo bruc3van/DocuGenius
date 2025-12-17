@@ -11,12 +11,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/brucevan/docugenius"
+    "url": "https://github.com/brucevanfdm/docugenius"
   },
   "bugs": {
-    "url": "https://github.com/brucevan/docugenius/issues"
+    "url": "https://github.com/brucevanfdm/docugenius/issues"
   },
-  "homepage": "https://github.com/brucevan/docugenius#readme",
+  "homepage": "https://github.com/brucevanfdm/docugenius#readme",
   "keywords": [
     "markdown",
     "converter",
