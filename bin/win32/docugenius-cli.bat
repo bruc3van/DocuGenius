@@ -17,7 +17,6 @@ if errorlevel 1 (
     echo Please install Python from https://python.org
     echo You can download it from: https://www.python.org/downloads/
     echo Make sure to check "Add Python to PATH" during installation
-    pause
     exit /b 1
 )
 
@@ -92,17 +91,10 @@ if not exist "%SCRIPT_DIR%converter.py" (
     exit /b 1
 )
 
-REM Silent conversion with timeout and error handling
-
-REM Run the Python converter script with timeout
-timeout /t 30 /nobreak >nul & (
-    python "%SCRIPT_DIR%converter.py" "%~1" "%~2" 2>nul
-    if errorlevel 1 (
-        echo Error: Conversion failed for "%~1"
-        exit /b 1
-    )
-) || (
-    echo Error: Conversion timeout or failed for "%~1"
+REM Run the Python converter script directly
+python "%SCRIPT_DIR%converter.py" "%~1" "%~2" 2>nul
+if errorlevel 1 (
+    echo Error: Conversion failed for "%~1"
     exit /b 1
 )
 exit /b 0

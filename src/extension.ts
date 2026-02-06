@@ -168,7 +168,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Update status
     statusManager.updateStatusBar(getStatusText('ready'));
-    statusManager.showWatcherStatus(configManager.isAutoConvertEnabled(), configManager.getSupportedExtensions());
+    const watcherEnabled = projectManager.isProjectEnabled() && configManager.isAutoConvertEnabled();
+    statusManager.showWatcherStatus(watcherEnabled, configManager.getSupportedExtensions());
 }
 
 export function deactivate() {

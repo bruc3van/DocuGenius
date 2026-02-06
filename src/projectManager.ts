@@ -13,6 +13,8 @@ export interface ProjectConfig {
 
 export class ProjectManager {
     private static readonly CONFIG_FILE_NAME = '.docugenius.json';
+    private static readonly ENABLED_MARKER_FILE_NAME = '.docugenius.enabled';
+    private static readonly DISABLED_MARKER_FILE_NAME = '.docugenius.disabled';
     private static readonly DEFAULT_CONFIG: ProjectConfig = {
         enabled: false,
         autoConvert: true,
@@ -41,9 +43,15 @@ export class ProjectManager {
         const rootPath = workspaceFolders[0].uri.fsPath;
         const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
 
-        // If project config files are disabled, consider project enabled if DocuGenius or legacy kb folder exists
+        // If project config files are disabled, fall back to marker files and legacy folder detection
         if (!this.configManager?.shouldCreateProjectConfig()) {
-            return this.hasExistingKbFolder(rootPath);
+            if (this.hasProjectMarker(rootPath, false)) {
+                return false;
+            }
+            if (this.hasProjectMarker(rootPath, true)) {
+                return true;
+            }
+            return this.hasExistingOutputFolder(rootPath);
         }
 
         if (fs.existsSync(configPath)) {
@@ -56,23 +64,57 @@ export class ProjectManager {
             }
         }
 
-        // 如果没有配置文件，检查是否已存在 DocuGenius 或 kb 文件夹
-        return this.hasExistingKbFolder(rootPath);
+        // 如果没有配置文件，检查是否已存在输出目录（兼容历史项目）
+        return this.hasExistingOutputFolder(rootPath);
     }
 
     /**
-     * 检查项目中是否已存在 DocuGenius 或 kb 文件夹（说明之前使用过）
+     * 检查项目中是否已存在输出目录（说明之前使用过）
      */
-    private hasExistingKbFolder(rootPath: string): boolean {
-        // Check for new DocuGenius folder first
-        const docuGeniusPath = path.join(rootPath, 'DocuGenius');
-        if (fs.existsSync(docuGeniusPath) && fs.statSync(docuGeniusPath).isDirectory()) {
-            return true;
+    private hasExistingOutputFolder(rootPath: string): boolean {
+        const configuredFolderName = this.configManager?.getMarkdownSubdirectoryName() || ProjectManager.DEFAULT_CONFIG.markdownSubdirectoryName;
+        const candidateFolders = new Set<string>([
+            configuredFolderName,
+            ProjectManager.DEFAULT_CONFIG.markdownSubdirectoryName,
+            'kb'
+        ]);
+
+        for (const folderName of candidateFolders) {
+            const folderPath = path.join(rootPath, folderName);
+            if (fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory()) {
+                return true;
+            }
         }
 
-        // Check for legacy kb folder for backward compatibility
-        const kbPath = path.join(rootPath, 'kb');
-        return fs.existsSync(kbPath) && fs.statSync(kbPath).isDirectory();
+        return false;
+    }
+
+    private getProjectMarkerPath(rootPath: string, enabled: boolean): string {
+        return path.join(
+            rootPath,
+            enabled ? ProjectManager.ENABLED_MARKER_FILE_NAME : ProjectManager.DISABLED_MARKER_FILE_NAME
+        );
+    }
+
+    private hasProjectMarker(rootPath: string, enabled: boolean): boolean {
+        return fs.existsSync(this.getProjectMarkerPath(rootPath, enabled));
+    }
+
+    private persistProjectMarker(rootPath: string, enabled: boolean): void {
+        const enabledMarkerPath = this.getProjectMarkerPath(rootPath, true);
+        const disabledMarkerPath = this.getProjectMarkerPath(rootPath, false);
+
+        if (enabled) {
+            if (fs.existsSync(disabledMarkerPath)) {
+                fs.rmSync(disabledMarkerPath, { force: true });
+            }
+            fs.writeFileSync(enabledMarkerPath, `enabledAt=${new Date().toISOString()}\n`, 'utf8');
+        } else {
+            if (fs.existsSync(enabledMarkerPath)) {
+                fs.rmSync(enabledMarkerPath, { force: true });
+            }
+            fs.writeFileSync(disabledMarkerPath, `disabledAt=${new Date().toISOString()}\n`, 'utf8');
+        }
     }
 
     /**
@@ -121,6 +163,8 @@ export class ProjectManager {
             // Only create project config file if user has enabled this option
             if (this.configManager?.shouldCreateProjectConfig()) {
                 await this.saveProjectConfig(rootPath, projectConfig);
+            } else {
+                this.persistProjectMarker(rootPath, true);
             }
 
             if (showConvertPrompt && this.hasConvertibleFiles(rootPath)) {
@@ -161,11 +205,16 @@ export class ProjectManager {
         }
 
         const rootPath = workspaceFolders[0].uri.fsPath;
-        const config = this.loadProjectConfig(rootPath);
-        config.enabled = false;
 
         try {
-            await this.saveProjectConfig(rootPath, config);
+            if (this.configManager?.shouldCreateProjectConfig()) {
+                const config = this.loadProjectConfig(rootPath);
+                config.enabled = false;
+                await this.saveProjectConfig(rootPath, config);
+            } else {
+                this.persistProjectMarker(rootPath, false);
+            }
+
             vscode.window.showInformationMessage('DocuGenius 已在当前项目禁用');
             return true;
         } catch (error) {
@@ -285,15 +334,28 @@ export class ProjectManager {
 
         const rootPath = workspaceFolders[0].uri.fsPath;
         const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
+        const useProjectConfig = this.configManager?.shouldCreateProjectConfig() ?? false;
 
         // If project config files are enabled and config file exists, don't show prompt
-        if (this.configManager?.shouldCreateProjectConfig() && fs.existsSync(configPath)) {
+        if (useProjectConfig && fs.existsSync(configPath)) {
             return false;
         }
 
-        // 如果已有 DocuGenius 或 kb 文件夹，自动启用，不显示提示
-        if (this.hasExistingKbFolder(rootPath)) {
-            this.enableForProject();
+        if (!useProjectConfig) {
+            const enabledMarkerPath = this.getProjectMarkerPath(rootPath, true);
+            const disabledMarkerPath = this.getProjectMarkerPath(rootPath, false);
+
+            // 如果项目被明确标记为禁用，不再弹出提示
+            if (fs.existsSync(disabledMarkerPath)) {
+                return false;
+            }
+
+            // 如果已有启用标记或输出目录，不显示提示
+            if (fs.existsSync(enabledMarkerPath) || this.hasExistingOutputFolder(rootPath)) {
+                return false;
+            }
+        } else if (this.hasExistingOutputFolder(rootPath)) {
+            // 启用项目配置文件模式下，保留历史行为：已有输出目录则不提示
             return false;
         }
 

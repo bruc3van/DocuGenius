@@ -7,6 +7,7 @@ import { ProjectManager } from './projectManager';
 
 export class FileWatcher implements vscode.Disposable {
     private watchers: vscode.FileSystemWatcher[] = [];
+    private configChangeDisposable?: vscode.Disposable;
     private converter: MarkitdownConverter;
     private configManager: ConfigurationManager;
     private statusManager: StatusManager;
@@ -22,7 +23,7 @@ export class FileWatcher implements vscode.Disposable {
         this.initializeWatchers();
 
         // Listen for configuration changes
-        vscode.workspace.onDidChangeConfiguration(e => {
+        this.configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('documentConverter')) {
                 this.reinitializeWatchers();
             }
@@ -185,9 +186,9 @@ export class FileWatcher implements vscode.Disposable {
             case '立即转换':
                 return true;
             case '禁用自动提醒':
-                // Disable auto-convert for this project
-                await this.configManager.updateConfiguration('autoConvert', false);
-                vscode.window.showInformationMessage('已禁用自动转换提醒。您可以随时在设置中重新启用。');
+                // Disable auto-convert for current workspace only
+                await this.configManager.updateConfiguration('autoConvert', false, vscode.ConfigurationTarget.Workspace);
+                vscode.window.showInformationMessage('已在当前工作区禁用自动转换提醒。您可以随时在设置中重新启用。');
                 return false;
             case '跳过':
             default:
@@ -242,5 +243,7 @@ export class FileWatcher implements vscode.Disposable {
 
     dispose(): void {
         this.disposeWatchers();
+        this.configChangeDisposable?.dispose();
+        this.configChangeDisposable = undefined;
     }
 }

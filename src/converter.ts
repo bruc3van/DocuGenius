@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ConfigurationManager } from './configuration';
 import { StatusManager } from './statusManager';
+import { localize } from './i18n';
 
 const execAsync = promisify(exec);
 
@@ -163,19 +164,21 @@ export class MarkitdownConverter {
      */
     async convertFolder(folderPath: string): Promise<ConversionResult[]> {
         try {
-            // Find all processable files (both convertible and copyable)
-            const allExtensions = [
-                ...this.configManager.getSupportedExtensions(),
-                '.md', '.markdown', '.mdown', '.mkd', '.mkdn',
-                '.txt', '.text',
-                '.json', '.jsonc',
-                '.xml', '.html', '.htm',
-                '.csv', '.tsv',
-                '.log',
-                '.yaml', '.yml',
-                '.toml', '.ini', '.cfg', '.conf',
-                '.sql'
-            ];
+            // Find all processable files (convertible by default, copyable when enabled)
+            const allExtensions = [...this.configManager.getSupportedExtensions()];
+            if (this.configManager.shouldCopyTextFiles()) {
+                allExtensions.push(
+                    '.md', '.markdown', '.mdown', '.mkd', '.mkdn',
+                    '.txt', '.text',
+                    '.json', '.jsonc',
+                    '.xml', '.html', '.htm',
+                    '.csv', '.tsv',
+                    '.log',
+                    '.yaml', '.yml',
+                    '.toml', '.ini', '.cfg', '.conf',
+                    '.sql'
+                );
+            }
 
             const files = this.findSupportedFiles(folderPath, allExtensions);
 
@@ -196,15 +199,13 @@ export class MarkitdownConverter {
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     progress.report({
-                        increment: i === 0 ? 0 : increment,
                         message: `Processing ${path.basename(file)}...`
                     });
 
                     const result = await this.processFile(file, false, true); // Enable batch mode
                     results.push(result);
+                    progress.report({ increment });
                 }
-                
-                progress.report({ increment: 100 });
             });
 
             const successCount = results.filter(r => r.success).length;
@@ -407,6 +408,8 @@ export class MarkitdownConverter {
      */
     private findSupportedFiles(dirPath: string, supportedExtensions: string[]): string[] {
         const files: string[] = [];
+        const markdownSubdirName = this.configManager.getMarkdownSubdirectoryName().toLowerCase();
+        const shouldSkipOutputDirectory = this.configManager.shouldOrganizeInSubdirectory();
         
         const scanDirectory = (currentPath: string) => {
             const items = fs.readdirSync(currentPath);
@@ -416,6 +419,9 @@ export class MarkitdownConverter {
                 const stat = fs.statSync(itemPath);
                 
                 if (stat.isDirectory()) {
+                    if (shouldSkipOutputDirectory && item.toLowerCase() === markdownSubdirName) {
+                        continue;
+                    }
                     scanDirectory(itemPath);
                 } else if (stat.isFile()) {
                     // Skip DocuGenius configuration files
@@ -554,7 +560,7 @@ export class MarkitdownConverter {
 
             // Reset status bar after 3 seconds
             setTimeout(() => {
-                this.statusManager.updateStatusBar('Ready');
+                this.statusManager.updateStatusBar(localize('status.ready'));
             }, 3000);
 
         } catch (error) {
@@ -838,14 +844,12 @@ export class MarkitdownConverter {
         // Split content by sections (headers) first, then by character count if needed
         const sections = this.splitByHeaders(markdownContent);
         let currentPart = '';
-        let partIndex = 1;
         
         for (const section of sections) {
             // If adding this section would exceed threshold, save current part
             if (currentPart.length > 0 && (currentPart.length + section.length) > threshold) {
                 parts.push(currentPart.trim());
                 currentPart = section;
-                partIndex++;
             } else {
                 currentPart += section;
             }
