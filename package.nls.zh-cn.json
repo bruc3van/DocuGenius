@@ -14,7 +14,7 @@
   "config.organizeInSubdirectory.description": "将转换的文件组织在子目录中，以便与源文件分离",
   "config.markdownSubdirectoryName.description": "存储转换的文件的子目录名称",
   "config.showSuccessNotifications.description": "文件成功转换时显示弹出通知",
-  "config.createProjectConfig.description": "创建 .docugenius.json 项目配置文件（如果禁用，则仅使用全局设置）",
+  "config.createProjectConfig.description": "默认创建 .docugenius.json 项目配置文件（如果禁用，则仅使用全局设置）",
   "config.copyTextFiles.description": "将纯文本文件（.txt、.md、.csv 等）复制到知识库文件夹以进行统一索引",
   "config.batchConversionBehavior.description": "如何处理同时检测到的多个文件",
   "config.batchConversionBehavior.askForEach": "为每个文件单独请求确认",

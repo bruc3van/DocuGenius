@@ -2,10 +2,10 @@
   "name": "docugenius",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "publisher": "brucevan",
   "author": {
-    "name": "bruc3van",
+    "name": "brucevan",
     "email": "brucevanfdm@gmail.com"
   },
   "license": "MIT",
@@ -118,7 +118,7 @@
         },
         "documentConverter.createProjectConfig": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%config.createProjectConfig.description%"
         },
         "documentConverter.batchDetectionWindow": {

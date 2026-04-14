@@ -14,7 +14,7 @@
   "config.organizeInSubdirectory.description": "Organize converted Markdown files in a subdirectory to separate them from source files",
   "config.markdownSubdirectoryName.description": "Name of the subdirectory where converted Markdown files will be stored",
   "config.showSuccessNotifications.description": "Show popup notifications when files are successfully converted",
-  "config.createProjectConfig.description": "Create .docugenius.json project configuration file (if disabled, uses global settings only)",
+  "config.createProjectConfig.description": "Create .docugenius.json project configuration file by default (if disabled, uses global settings only)",
   "config.copyTextFiles.description": "Copy plain text files (.txt, .md, .csv, etc.) to the knowledge base folder for unified indexing",
   "config.batchConversionBehavior.description": "How to handle multiple files detected at once",
   "config.batchConversionBehavior.askForEach": "Ask for confirmation for each file individually",

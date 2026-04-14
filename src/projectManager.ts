@@ -22,7 +22,7 @@ export class ProjectManager {
 
     private shouldUseProjectConfig(): boolean {
         const config = vscode.workspace.getConfiguration('documentConverter');
-        return config.get<boolean>('createProjectConfig', false);
+        return config.get<boolean>('createProjectConfig', true);
     }
 
     private getConfiguredFolderName(): string {

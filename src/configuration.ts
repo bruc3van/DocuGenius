@@ -88,7 +88,7 @@ export class ConfigurationManager {
      */
     shouldCreateProjectConfig(): boolean {
         const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('createProjectConfig', false);
+        return config.get<boolean>('createProjectConfig', true);
     }
 
     /**
