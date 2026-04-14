@@ -72,6 +72,7 @@ export class RuntimeManager {
 
     async ensureReadyForConversion(trigger: ConversionTrigger): Promise<RuntimeResolution> {
         if (!this.isManagedRuntimePlatform()) {
+            this.statusManager.clearRuntimeActionRequired();
             return { ready: true };
         }
 
@@ -82,12 +83,16 @@ export class RuntimeManager {
         const inspection = await this.inspectRuntime();
         if (inspection.status === 'ready') {
             this.cachedPythonPath = inspection.runtimePythonPath;
+            this.statusManager.clearRuntimeActionRequired();
             return { ready: true, pythonPath: inspection.runtimePythonPath };
         }
 
         if (inspection.status === 'missing-python') {
+            this.statusManager.showRuntimeActionRequired(inspection.detail, true);
             return this.handleMissingPython(trigger, inspection);
         }
+
+        this.statusManager.showRuntimeActionRequired(inspection.detail);
 
         if (trigger !== 'manual' && Date.now() < this.promptDeferredUntil) {
             return {
@@ -106,6 +111,25 @@ export class RuntimeManager {
         }
 
         return this.installOrRepairRuntime(false);
+    }
+
+    async refreshStatusIndicator(): Promise<void> {
+        if (!this.isManagedRuntimePlatform()) {
+            this.statusManager.clearRuntimeActionRequired();
+            return;
+        }
+
+        const inspection = await this.inspectRuntime();
+        if (inspection.status === 'ready') {
+            this.cachedPythonPath = inspection.runtimePythonPath;
+            this.statusManager.clearRuntimeActionRequired();
+            return;
+        }
+
+        this.statusManager.showRuntimeActionRequired(
+            inspection.detail,
+            inspection.status === 'missing-python'
+        );
     }
 
     async installOrRepairRuntime(forceReinstall: boolean): Promise<RuntimeResolution> {
@@ -135,10 +159,13 @@ export class RuntimeManager {
         const actions: string[] = [];
 
         if (inspection.status === 'ready') {
+            this.statusManager.clearRuntimeActionRequired();
             actions.push(localize('runtime.action.repair'), localize('runtime.action.openLogs'));
         } else if (inspection.status === 'missing-python') {
+            this.statusManager.showRuntimeActionRequired(inspection.detail, true);
             actions.push(localize('runtime.action.openPythonDownload'), localize('runtime.action.openLogs'));
         } else {
+            this.statusManager.showRuntimeActionRequired(inspection.detail);
             actions.push(localize('runtime.action.install'), localize('runtime.action.openLogs'));
         }
 
@@ -268,6 +295,7 @@ export class RuntimeManager {
         const inspection = await this.inspectRuntime();
         if (inspection.status === 'ready') {
             this.cachedPythonPath = inspection.runtimePythonPath;
+            this.statusManager.clearRuntimeActionRequired();
             return {
                 ready: true,
                 pythonPath: inspection.runtimePythonPath
@@ -275,6 +303,7 @@ export class RuntimeManager {
         }
 
         if (!inspection.bootstrapCandidate) {
+            this.statusManager.showRuntimeActionRequired(inspection.detail, true);
             return {
                 ready: false,
                 error: localize('runtime.error.pythonMissing')
@@ -332,7 +361,7 @@ export class RuntimeManager {
             );
 
             this.cachedPythonPath = runtimePythonPath;
-            this.statusManager.updateStatusBar(localize('status.ready'));
+            this.statusManager.clearRuntimeActionRequired();
             this.statusManager.log(localize('log.runtime.ready', runtimePythonPath));
 
             await vscode.window.showInformationMessage(
@@ -352,7 +381,7 @@ export class RuntimeManager {
             const message = error instanceof Error ? error.message : String(error);
             this.cachedPythonPath = undefined;
             this.statusManager.log(localize('log.runtime.failed', message), true);
-            this.statusManager.updateStatusBar(localize('status.ready'));
+            this.statusManager.showRuntimeActionRequired(inspection.detail);
 
             await vscode.window.showErrorMessage(
                 localize('runtime.error.installFailed'),

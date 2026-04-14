@@ -345,6 +345,10 @@ export class MarkitdownConverter {
         await this.runtimeManager.showRuntimeStatus();
     }
 
+    async refreshManagedRuntimeStatus(): Promise<void> {
+        await this.runtimeManager.refreshStatusIndicator();
+    }
+
     /**
      * Call built-in converter to convert file
      */

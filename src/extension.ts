@@ -27,6 +27,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Initialize converter
     const converter = new MarkitdownConverter(context, configManager, statusManager);
+    void converter.refreshManagedRuntimeStatus().catch(error => {
+        console.error('Failed to refresh managed runtime status', error);
+    });
 
     const detachFileWatcher = (): void => {
         if (!fileWatcher) {

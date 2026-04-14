@@ -8,6 +8,9 @@ export class StatusManager {
     private configManager: ConfigurationManager;
     private statusBarResetTimer?: NodeJS.Timeout;
     private showOutputCommand: vscode.Disposable;
+    private persistentStatusText = '';
+    private persistentTooltip = '';
+    private persistentCommand: string | undefined = 'documentConverter.showOutput';
 
     constructor(configManager: ConfigurationManager) {
         this.configManager = configManager;
@@ -26,16 +29,19 @@ export class StatusManager {
             this.outputChannel.show();
         });
         
-        this.updateStatusBar(localize('status.ready'));
+        this.setPersistentStatus(
+            `$(markdown) ${localize('status.ready')}`,
+            localize('tooltip.ready', localize('status.ready')),
+            'documentConverter.showOutput'
+        );
+        this.applyPersistentStatus();
     }
 
     /**
      * Update status bar with current status
      */
     updateStatusBar(status: string, tooltip?: string): void {
-        this.statusBarItem.text = `$(markdown) ${status}`;
-        this.statusBarItem.tooltip = tooltip || localize('tooltip.ready', status);
-        this.statusBarItem.show();
+        this.renderStatusBar(`$(markdown) ${status}`, tooltip || localize('tooltip.ready', status), this.persistentCommand);
     }
 
     /**
@@ -89,7 +95,7 @@ export class StatusManager {
         // Reset status bar after 5 seconds (increased from 3 seconds)
         this.clearStatusBarResetTimer();
         this.statusBarResetTimer = setTimeout(() => {
-            this.updateStatusBar(localize('status.ready'));
+            this.applyPersistentStatus();
         }, 5000);
     }
 
@@ -111,7 +117,7 @@ export class StatusManager {
         // Reset status bar after 5 seconds
         this.clearStatusBarResetTimer();
         this.statusBarResetTimer = setTimeout(() => {
-            this.updateStatusBar(localize('status.ready'));
+            this.applyPersistentStatus();
         }, 5000);
     }
 
@@ -154,7 +160,7 @@ export class StatusManager {
         // Reset status bar after 5 seconds
         this.clearStatusBarResetTimer();
         this.statusBarResetTimer = setTimeout(() => {
-            this.updateStatusBar(localize('status.ready'));
+            this.applyPersistentStatus();
         }, 5000);
     }
 
@@ -171,7 +177,7 @@ export class StatusManager {
         // Reset status bar after 2 seconds
         this.clearStatusBarResetTimer();
         this.statusBarResetTimer = setTimeout(() => {
-            this.updateStatusBar(localize('status.ready'));
+            this.applyPersistentStatus();
         }, 2000);
     }
 
@@ -196,7 +202,7 @@ export class StatusManager {
         // Reset status bar after 3 seconds
         this.clearStatusBarResetTimer();
         this.statusBarResetTimer = setTimeout(() => {
-            this.updateStatusBar(localize('status.ready'));
+            this.applyPersistentStatus();
         }, 3000);
     }
 
@@ -216,8 +222,33 @@ export class StatusManager {
         // Reset status bar after 2 seconds
         this.clearStatusBarResetTimer();
         this.statusBarResetTimer = setTimeout(() => {
-            this.updateStatusBar(localize('status.ready'));
+            this.applyPersistentStatus();
         }, 2000);
+    }
+
+    showRuntimeActionRequired(detail: string, requiresPythonInstall: boolean = false): void {
+        const status = requiresPythonInstall
+            ? localize('status.runtimePythonMissing')
+            : localize('status.runtimeActionRequired');
+        const tooltip = requiresPythonInstall
+            ? localize('tooltip.runtimePythonMissing', detail)
+            : localize('tooltip.runtimeActionRequired', detail);
+
+        this.setPersistentStatus(
+            `$(warning) ${status}`,
+            tooltip,
+            'documentConverter.showRuntimeStatus'
+        );
+        this.applyPersistentStatus();
+    }
+
+    clearRuntimeActionRequired(): void {
+        this.setPersistentStatus(
+            `$(markdown) ${localize('status.ready')}`,
+            localize('tooltip.ready', localize('status.ready')),
+            'documentConverter.showOutput'
+        );
+        this.applyPersistentStatus();
     }
 
     /**
@@ -227,6 +258,23 @@ export class StatusManager {
         const timestamp = new Date().toLocaleTimeString();
         const prefix = isError ? '[ERROR]' : '[INFO]';
         this.outputChannel.appendLine(`${timestamp} ${prefix} ${message}`);
+    }
+
+    private setPersistentStatus(text: string, tooltip: string, command?: string): void {
+        this.persistentStatusText = text;
+        this.persistentTooltip = tooltip;
+        this.persistentCommand = command;
+    }
+
+    private applyPersistentStatus(): void {
+        this.renderStatusBar(this.persistentStatusText, this.persistentTooltip, this.persistentCommand);
+    }
+
+    private renderStatusBar(text: string, tooltip: string, command?: string): void {
+        this.statusBarItem.text = text;
+        this.statusBarItem.tooltip = tooltip;
+        this.statusBarItem.command = command;
+        this.statusBarItem.show();
     }
 
     /**
