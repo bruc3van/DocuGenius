@@ -13,7 +13,7 @@ node_modules/**
 .git/**
 
 # Build scripts and temporary files
-build-binaries.py
+build_binaries.py
 create-embedded-binary.sh
 create-working-binary.py
 advanced-binary-builder.py

@@ -427,10 +427,8 @@ def create_darwin_binary():
     current_arch = platform.machine()
     print(f"Current system architecture: {current_arch}")
 
-    # Create temporary CLI source file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-        f.write(create_cli_source())
-        cli_file = f.name
+    # Use the shared converter.py as entry point for PyInstaller
+    cli_file = str(Path('bin/converter.py').resolve())
 
     try:
         # Create virtual environment for building
@@ -446,7 +444,7 @@ def create_darwin_binary():
 
         # Install PyInstaller and document processing libraries
         print("Installing PyInstaller and document libraries...")
-        install_cmd = f"source {env_dir}/bin/activate && pip install pyinstaller python-docx python-pptx openpyxl pdfplumber"
+        install_cmd = f". {env_dir}/bin/activate && pip install pyinstaller python-docx python-pptx openpyxl pdfplumber"
         success, _, _ = run_command(install_cmd)
 
         if not success:
@@ -455,11 +453,15 @@ def create_darwin_binary():
 
         # Build the executable
         print("Building executable...")
-        build_cmd = f"source {env_dir}/bin/activate && python -m PyInstaller --onefile --name docugenius-cli --strip --optimize=2 {cli_file}"
-        success, stdout, stderr = run_command(build_cmd, capture_output=False)
-        
+        build_cmd = f". {env_dir}/bin/activate && python -m PyInstaller --onefile --name docugenius-cli --strip --optimize=2 {cli_file}"
+        success, stdout, stderr = run_command(build_cmd, capture_output=True)
+
         if not success:
             print("Failed to build executable")
+            if stdout:
+                print("STDOUT:", stdout)
+            if stderr:
+                print("STDERR:", stderr)
             return False
 
         # Check if the executable was created
@@ -488,16 +490,15 @@ def create_darwin_binary():
             if os.path.exists(dir_name):
                 shutil.rmtree(dir_name)
 
+        for spec_file in Path('.').glob('*.spec'):
+            spec_file.unlink()
+
         print("Cleaned up build artifacts")
         return True
 
     except Exception as e:
         print(f"Failed to create binary: {e}")
         return False
-    finally:
-        # Clean up temporary file
-        if os.path.exists(cli_file):
-            os.unlink(cli_file)
 
 def create_windows_batch():
     """Create Windows batch file"""
@@ -587,7 +588,7 @@ exit /b %RESULT%
 def main():
     print("DocuGenius Binary Builder")
 
-    platform = sys.platform
+    current_platform = sys.platform
 
     if len(sys.argv) > 1:
         target = sys.argv[1].lower()
@@ -597,7 +598,7 @@ def main():
     success = True
 
     if target in ["all", "darwin", "macos"]:
-        if platform == "darwin" or target != "all":
+        if current_platform == "darwin" or target != "all":
             success &= create_darwin_binary()
         else:
             print("Skipping macOS binary (not on macOS)")
