@@ -5,16 +5,40 @@ on:
     tags:
       - 'v*'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  build-macos:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-13
-            arch: x64
-          - runner: macos-latest
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
+  build-macos-x64:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rosetta 2
+        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Set up Python (x64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+
+      - name: Verify Python architecture
+        run: python3 -c "import platform; print(platform.machine())"
+
+      - name: Build macOS x64 binary
+        run: python3 build_binaries.py darwin
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-x64
+          path: bin/darwin/docugenius-cli
+          retention-days: 1
+
+  build-macos-arm64:
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,18 +48,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build macOS binary
-        run: python build_binaries.py darwin
+      - name: Verify Python architecture
+        run: python3 -c "import platform; print(platform.machine())"
+
+      - name: Build macOS arm64 binary
+        run: python3 build_binaries.py darwin
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: darwin-${{ matrix.arch }}
+          name: darwin-arm64
           path: bin/darwin/docugenius-cli
           retention-days: 1
 
   package-and-release:
-    needs: build-macos
+    needs: [build-macos-x64, build-macos-arm64]
     runs-on: macos-latest
     steps:
       - name: Checkout
