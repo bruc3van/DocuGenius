@@ -272,7 +272,8 @@ export class MarkitdownConverter {
                     if (isPythonConverter) {
                         // Pass extract images configuration to Python converter
                         const extractImages = this.configManager.shouldExtractImages();
-                        fullCommand = `"${command}" "${filePath}" ${extractImages ? 'true' : 'false'}`;
+                        const outputPath = this.getOutputPath(filePath);
+                        fullCommand = `"${command}" "${filePath}" ${extractImages ? 'true' : 'false'} "${outputPath}"`;
                     } else {
                         fullCommand = `"${command}" "${filePath}"`;
                     }

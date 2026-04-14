@@ -85,14 +85,14 @@ REM Get the directory where this batch file is located
 set SCRIPT_DIR=%~dp0
 
 REM Check if converter.py exists
-if not exist "%SCRIPT_DIR%converter.py" (
-    echo Error: converter.py not found in %SCRIPT_DIR%
+if not exist "%SCRIPT_DIR%..\converter.py" (
+    echo Error: converter.py not found in %SCRIPT_DIR%..
     echo Please reinstall the DocuGenius extension.
     exit /b 1
 )
 
 REM Run the Python converter script directly
-python "%SCRIPT_DIR%converter.py" "%~1" "%~2" 2>nul
+python "%SCRIPT_DIR%..\converter.py" "%~1" "%~2" 2>nul
 if errorlevel 1 (
     echo Error: Conversion failed for "%~1"
     exit /b 1
