@@ -7,6 +7,7 @@ export class StatusManager {
     private outputChannel: vscode.OutputChannel;
     private configManager: ConfigurationManager;
     private statusBarResetTimer?: NodeJS.Timeout;
+    private showOutputCommand: vscode.Disposable;
 
     constructor(configManager: ConfigurationManager) {
         this.configManager = configManager;
@@ -21,7 +22,7 @@ export class StatusManager {
         this.outputChannel = vscode.window.createOutputChannel('DocuGenius');
         
         // Register command to show output
-        vscode.commands.registerCommand('documentConverter.showOutput', () => {
+        this.showOutputCommand = vscode.commands.registerCommand('documentConverter.showOutput', () => {
             this.outputChannel.show();
         });
         
@@ -258,6 +259,7 @@ export class StatusManager {
      */
     dispose(): void {
         this.clearStatusBarResetTimer();
+        this.showOutputCommand.dispose();
         this.statusBarItem.dispose();
         this.outputChannel.dispose();
     }

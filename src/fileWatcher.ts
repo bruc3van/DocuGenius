@@ -1,9 +1,19 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import { MarkitdownConverter } from './converter';
 import { ConfigurationManager } from './configuration';
 import { ProjectManager } from './projectManager';
 import { COPYABLE_EXTENSIONS } from './constants';
+import { pathContainsDirectorySegment } from './pathUtils';
+
+type FileEventType = 'created' | 'changed' | 'deleted';
+
+interface PendingCreatedFile {
+    filePath: string;
+    fileName: string;
+    fileExtension: string;
+}
 
 export class FileWatcher implements vscode.Disposable {
     private watchers: vscode.FileSystemWatcher[] = [];
@@ -11,8 +21,8 @@ export class FileWatcher implements vscode.Disposable {
     private converter: MarkitdownConverter;
     private configManager: ConfigurationManager;
     private projectManager: ProjectManager;
-
-
+    private pendingCreatedFiles = new Map<string, PendingCreatedFile>();
+    private pendingBatchTimer?: NodeJS.Timeout;
 
     constructor(converter: MarkitdownConverter, configManager: ConfigurationManager, projectManager: ProjectManager) {
         this.converter = converter;
@@ -70,14 +80,17 @@ export class FileWatcher implements vscode.Disposable {
 
 
 
-    private async handleFileEvent(uri: vscode.Uri, eventType: 'created' | 'changed' | 'deleted'): Promise<void> {
+    private async handleFileEvent(uri: vscode.Uri, eventType: FileEventType): Promise<void> {
         try {
             const filePath = uri.fsPath;
             const fileName = path.basename(filePath);
 
             // CRITICAL: Prevent infinite loop by ignoring files in markdown directory
             const markdownSubdirName = this.configManager.getMarkdownSubdirectoryName();
-            if (filePath.includes(`/${markdownSubdirName}/`) || filePath.includes(`\\${markdownSubdirName}\\`)) {
+            if (
+                this.configManager.shouldOrganizeInSubdirectory() &&
+                pathContainsDirectorySegment(filePath, markdownSubdirName)
+            ) {
                 console.log(`Ignoring file in markdown directory: ${filePath}`);
                 return;
             }
@@ -100,11 +113,16 @@ export class FileWatcher implements vscode.Disposable {
                 return;
             }
 
-            const autoConvertEnabled = this.configManager.isAutoConvertEnabled();
+            const autoConvertEnabled = this.isAutoConvertEnabled();
 
             if (eventType === 'deleted') {
                 // Handle file deletion even when auto-convert is disabled
                 await this.converter.handleFileDeleted(filePath);
+                return;
+            }
+
+            if (eventType === 'changed' && this.pendingCreatedFiles.has(filePath)) {
+                console.log(`Skipping change event because create event is already queued: ${filePath}`);
                 return;
             }
 
@@ -121,17 +139,13 @@ export class FileWatcher implements vscode.Disposable {
                 return;
             }
 
+            if (eventType === 'created') {
+                this.queueCreatedFile(filePath, fileName, fileExtension);
+                return;
+            }
+
             // Add a small delay to ensure file is fully written
             await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // For file creation events, ask for user confirmation before converting
-            if (eventType === 'created') {
-                const shouldConvert = await this.askForConversionConfirmation(fileName, fileExtension);
-                if (!shouldConvert) {
-                    console.log(`User declined to convert: ${fileName}`);
-                    return;
-                }
-            }
 
             // Process the file (convert or copy)
             await this.converter.processFile(filePath);
@@ -157,25 +171,55 @@ export class FileWatcher implements vscode.Disposable {
 
         // Ask for confirmation for document conversion
         const choice = await vscode.window.showInformationMessage(
-            `检测到新文件: ${fileName}`,
+            `Detected new file: ${fileName}`,
             {
                 modal: true,
-                detail: `是否转换此文档为 Markdown 格式？`
+                detail: 'Convert this document to Markdown?'
             },
-            '立即转换',
-            '跳过',
-            '禁用自动提醒'
+            'Convert Now',
+            'Skip',
+            'Disable Auto-Convert'
         );
 
         switch (choice) {
-            case '立即转换':
+            case 'Convert Now':
                 return true;
-            case '禁用自动提醒':
+            case 'Disable Auto-Convert':
                 // Disable auto-convert for current workspace only
                 await this.configManager.updateConfiguration('autoConvert', false, vscode.ConfigurationTarget.Workspace);
-                vscode.window.showInformationMessage('已在当前工作区禁用自动转换提醒。您可以随时在设置中重新启用。');
+                vscode.window.showInformationMessage('Auto-convert has been disabled for this workspace. You can re-enable it in settings anytime.');
                 return false;
-            case '跳过':
+            case 'Skip':
+            default:
+                return false;
+        }
+    }
+
+    private async askForBatchConversionConfirmation(files: PendingCreatedFile[]): Promise<boolean> {
+        const documentCount = files.filter(file => this.isConvertibleDocument(file.fileExtension)).length;
+        if (documentCount === 0) {
+            return true;
+        }
+
+        const choice = await vscode.window.showInformationMessage(
+            `Detected ${files.length} new files`,
+            {
+                modal: true,
+                detail: `Convert ${documentCount} document${documentCount === 1 ? '' : 's'} in this batch to Markdown?`
+            },
+            'Convert All',
+            'Skip All',
+            'Disable Auto-Convert'
+        );
+
+        switch (choice) {
+            case 'Convert All':
+                return true;
+            case 'Disable Auto-Convert':
+                await this.configManager.updateConfiguration('autoConvert', false, vscode.ConfigurationTarget.Workspace);
+                vscode.window.showInformationMessage('Auto-convert has been disabled for this workspace. You can re-enable it in settings anytime.');
+                return false;
+            case 'Skip All':
             default:
                 return false;
         }
@@ -215,9 +259,108 @@ export class FileWatcher implements vscode.Disposable {
         return normalizedName.startsWith('~$');
     }
 
+    private isConvertibleDocument(fileExtension: string): boolean {
+        return this.configManager.getSupportedExtensions().includes(fileExtension);
+    }
+
+    private isAutoConvertEnabled(): boolean {
+        const projectAutoConvert = this.projectManager.getProjectAutoConvert();
+        return projectAutoConvert ?? this.configManager.isAutoConvertEnabled();
+    }
+
+    private queueCreatedFile(filePath: string, fileName: string, fileExtension: string): void {
+        this.pendingCreatedFiles.set(filePath, {
+            filePath,
+            fileName,
+            fileExtension
+        });
+        this.schedulePendingBatchFlush();
+    }
+
+    private schedulePendingBatchFlush(): void {
+        if (this.pendingBatchTimer) {
+            clearTimeout(this.pendingBatchTimer);
+        }
+
+        this.pendingBatchTimer = setTimeout(() => {
+            this.pendingBatchTimer = undefined;
+            void this.flushPendingCreatedFiles();
+        }, this.configManager.getBatchDetectionWindow());
+    }
+
+    private async flushPendingCreatedFiles(): Promise<void> {
+        const queuedFiles = [...this.pendingCreatedFiles.values()];
+        this.pendingCreatedFiles.clear();
+
+        if (queuedFiles.length === 0) {
+            return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const existingFiles = queuedFiles.filter(file => fs.existsSync(file.filePath));
+        if (existingFiles.length === 0) {
+            return;
+        }
+
+        const behavior = this.configManager.getBatchConversionBehavior();
+        if (behavior === 'skipAll') {
+            return;
+        }
+
+        if (behavior === 'convertAll') {
+            await this.processCreatedFiles(existingFiles);
+            return;
+        }
+
+        if (behavior === 'askOnce' && existingFiles.length > 1) {
+            const shouldConvert = await this.askForBatchConversionConfirmation(existingFiles);
+            if (shouldConvert) {
+                await this.processCreatedFiles(existingFiles);
+            }
+            return;
+        }
+
+        await this.processCreatedFilesIndividually(existingFiles);
+    }
+
+    private async processCreatedFiles(files: PendingCreatedFile[]): Promise<void> {
+        for (const file of files) {
+            await this.converter.processFile(file.filePath);
+        }
+    }
+
+    private async processCreatedFilesIndividually(files: PendingCreatedFile[]): Promise<void> {
+        for (const file of files) {
+            if (!fs.existsSync(file.filePath)) {
+                continue;
+            }
+
+            if (this.isConvertibleDocument(file.fileExtension)) {
+                const shouldConvert = await this.askForConversionConfirmation(file.fileName, file.fileExtension);
+                if (!shouldConvert) {
+                    console.log(`User declined to convert: ${file.fileName}`);
+                    continue;
+                }
+            }
+
+            await this.converter.processFile(file.filePath);
+        }
+    }
+
+    private clearPendingBatchState(): void {
+        if (this.pendingBatchTimer) {
+            clearTimeout(this.pendingBatchTimer);
+            this.pendingBatchTimer = undefined;
+        }
+
+        this.pendingCreatedFiles.clear();
+    }
+
     dispose(): void {
         this.disposeWatchers();
         this.configChangeDisposable?.dispose();
         this.configChangeDisposable = undefined;
+        this.clearPendingBatchState();
     }
 }

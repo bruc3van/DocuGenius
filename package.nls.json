@@ -5,9 +5,10 @@
   "config.title": "DocuGenius",
   "config.autoConvert.description": "Enable automatic conversion of supported files to Markdown",
   "config.overwriteExisting.description": "Overwrite existing .md files if source file is newer",
-  "config.extractImages.description": "[BETA] Extract images from documents to separate assets folder (experimental feature)",
+  "config.extractImages.description": "[BETA] Extract images from Word, Excel, and PowerPoint documents to a separate assets folder (PDF image extraction is not supported)",
 
   "config.imageOutputFolder.description": "Folder name for extracted images (relative to document location or markdown subdirectory) (only effective when image extraction is enabled)",
+  "config.imageMinSize.description": "Minimum image size threshold used when extracting document images",
   "config.enableDocumentSplitting.description": "Automatically split large documents into multiple Markdown files for better performance and readability",
   "config.documentSplittingThreshold.description": "Character count threshold for document splitting (documents exceeding this limit will be split into multiple files)",
  
@@ -31,6 +32,7 @@
   "command.installRuntime.title": "[DocuGenius]Install Shared Runtime",
   "command.repairRuntime.title": "[DocuGenius]Repair Shared Runtime",
   "command.showRuntimeStatus.title": "[DocuGenius]Show Runtime Status",
+  "command.showOutput.title": "[DocuGenius]Show Output Log",
   
   "message.ready": "DocuGenius is ready!",
   "message.projectEnabled": "Project enabled",

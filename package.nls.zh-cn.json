@@ -5,9 +5,10 @@
   "config.title": "DocuGenius",
   "config.autoConvert.description": "启用支持文件自动转换",
   "config.overwriteExisting.description": "如果源文件较新，则覆盖现有的 .md 文件",
-  "config.extractImages.description": "[BETA] 将文档中的图片提取到单独的资源文件夹（实验性功能）",
+  "config.extractImages.description": "[BETA] 将 Word、Excel、PowerPoint 文档中的图片提取到单独的资源文件夹（暂不支持 PDF 图片提取）",
 
   "config.imageOutputFolder.description": "提取图片的文件夹名称（相对于文档位置或 markdown 子目录）（仅在启用图片提取时生效）",
+  "config.imageMinSize.description": "提取文档图片时使用的最小图片尺寸阈值",
   "config.enableDocumentSplitting.description": "自动将大型文档切分为多个 Markdown 文件，以提高性能和可读性",
   "config.documentSplittingThreshold.description": "文档切分的字符数阈值（超过此限制的文档将被切分为多个文件）",
  
@@ -31,6 +32,7 @@
   "command.installRuntime.title": "[DocuGenius]安装共享运行时",
   "command.repairRuntime.title": "[DocuGenius]修复共享运行时",
   "command.showRuntimeStatus.title": "[DocuGenius]显示运行时状态",
+  "command.showOutput.title": "[DocuGenius]显示输出日志",
   
   "message.ready": "DocuGenius 已就绪！",
   "message.projectEnabled": "项目已启用",

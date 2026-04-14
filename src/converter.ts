@@ -8,6 +8,7 @@ import { localize } from './i18n';
 import { COPYABLE_EXTENSIONS } from './constants';
 import { splitByHeaders, createIndexFile } from './utils';
 import { RuntimeManager, ConversionTrigger, RuntimeResolution } from './runtimeManager';
+import { pathContainsDirectorySegment } from './pathUtils';
 
 interface ConverterCommand {
     command: string;
@@ -90,7 +91,10 @@ export class MarkitdownConverter {
         this.isBatchMode = isBatchMode;
         // CRITICAL: Prevent infinite loop - never process files in markdown directory
         const markdownSubdirName = this.configManager.getMarkdownSubdirectoryName();
-        if (filePath.includes(`/${markdownSubdirName}/`) || filePath.includes(`\\${markdownSubdirName}\\`)) {
+        if (
+            this.configManager.shouldOrganizeInSubdirectory() &&
+            pathContainsDirectorySegment(filePath, markdownSubdirName)
+        ) {
             console.log(`LOOP PREVENTION: Ignoring file in markdown directory: ${filePath}`);
             return { success: true, outputPath: filePath };
         }

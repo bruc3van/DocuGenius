@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { SUPPORTED_CONVERT_EXTENSIONS } from './constants';
 
 export class ConfigurationManager {
     private static readonly SECTION = 'documentConverter';
@@ -24,7 +25,7 @@ export class ConfigurationManager {
      */
     shouldExtractImages(): boolean {
         const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('extractImages', true);
+        return config.get<boolean>('extractImages', false);
     }
 
     /**
@@ -33,22 +34,6 @@ export class ConfigurationManager {
     getImageMinSize(): number {
         const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
         return config.get<number>('imageMinSize', 100);
-    }
-
-    /**
-     * Get supported image formats
-     */
-    getImageFormats(): string[] {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<string[]>('imageFormats', ['png', 'jpg', 'jpeg', 'gif', 'bmp']);
-    }
-
-    /**
-     * Get image naming convention
-     */
-    getImageNamingConvention(): string {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<string>('imageNamingConvention', 'page_based');
     }
 
     /**
@@ -63,8 +48,7 @@ export class ConfigurationManager {
      * Get supported file extensions
      */
     getSupportedExtensions(): string[] {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<string[]>('supportedExtensions', ['.docx', '.xlsx', '.pptx', '.pdf']);
+        return [...SUPPORTED_CONVERT_EXTENSIONS];
     }
 
     /**
@@ -156,8 +140,6 @@ export class ConfigurationManager {
         extractImages: boolean;
         supportedExtensions: string[];
         imageMinSize: number;
-        imageFormats: string[];
-        imageNamingConvention: string;
         imageOutputFolder: string;
     } {
         return {
@@ -166,8 +148,6 @@ export class ConfigurationManager {
             extractImages: this.shouldExtractImages(),
             supportedExtensions: this.getSupportedExtensions(),
             imageMinSize: this.getImageMinSize(),
-            imageFormats: this.getImageFormats(),
-            imageNamingConvention: this.getImageNamingConvention(),
             imageOutputFolder: this.getImageOutputFolder()
         };
     }
@@ -180,7 +160,7 @@ export class ConfigurationManager {
         await config.update('autoConvert', undefined, vscode.ConfigurationTarget.Global);
         await config.update('overwriteExisting', undefined, vscode.ConfigurationTarget.Global);
         await config.update('extractImages', undefined, vscode.ConfigurationTarget.Global);
-        await config.update('supportedExtensions', undefined, vscode.ConfigurationTarget.Global);
+        await config.update('imageMinSize', undefined, vscode.ConfigurationTarget.Global);
     }
 
     /**

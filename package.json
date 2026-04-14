@@ -77,6 +77,12 @@
           "default": "images",
           "description": "%config.imageOutputFolder.description%"
         },
+        "documentConverter.imageMinSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "description": "%config.imageMinSize.description%"
+        },
         "documentConverter.enableDocumentSplitting": {
           "type": "boolean",
           "default": true,
@@ -169,6 +175,11 @@
       {
         "command": "documentConverter.showRuntimeStatus",
         "title": "%command.showRuntimeStatus.title%",
+        "category": "DocuGenius"
+      },
+      {
+        "command": "documentConverter.showOutput",
+        "title": "%command.showOutput.title%",
         "category": "DocuGenius"
       }
     ],

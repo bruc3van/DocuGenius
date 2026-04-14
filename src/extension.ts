@@ -28,12 +28,40 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize converter
     const converter = new MarkitdownConverter(context, configManager, statusManager);
 
+    const detachFileWatcher = (): void => {
+        if (!fileWatcher) {
+            return;
+        }
+
+        const watcherIndex = context.subscriptions.indexOf(fileWatcher);
+        if (watcherIndex >= 0) {
+            context.subscriptions.splice(watcherIndex, 1);
+        }
+
+        fileWatcher.dispose();
+        fileWatcher = undefined;
+    };
+
+    const attachFileWatcher = (): void => {
+        detachFileWatcher();
+        if (!projectManager) {
+            return;
+        }
+
+        fileWatcher = new FileWatcher(converter, configManager, projectManager);
+        context.subscriptions.push(fileWatcher);
+    };
+
     // Initialize file watcher
-    fileWatcher = new FileWatcher(converter, configManager, projectManager);
+    attachFileWatcher();
     
     // Helper to get effective auto-convert setting
     const getEffectiveAutoConvert = (): boolean => {
-        const projectAutoConvert = projectManager!.getProjectAutoConvert();
+        if (!projectManager) {
+            return configManager.isAutoConvertEnabled();
+        }
+
+        const projectAutoConvert = projectManager.getProjectAutoConvert();
         if (projectAutoConvert !== undefined) {
             return projectAutoConvert;
         }
@@ -41,15 +69,13 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     // Check if we should show enable prompt for new projects
-    if (!projectManager.isProjectEnabled()) {
+    if (projectManager && !projectManager.isProjectEnabled()) {
         setTimeout(() => {
-            if (projectManager!.shouldShowEnablePrompt()) {
-                projectManager!.showEnableDialog().then(enabled => {
-                    if (enabled && statusManager && fileWatcher && projectManager) {
+            if (projectManager?.shouldShowEnablePrompt()) {
+                projectManager.showEnableDialog().then(enabled => {
+                    if (enabled && statusManager && projectManager) {
                         // Reinitialize file watcher when project is enabled
-                        fileWatcher.dispose();
-                        fileWatcher = new FileWatcher(converter, configManager, projectManager);
-                        context.subscriptions.push(fileWatcher);
+                        attachFileWatcher();
                         statusManager.showWatcherStatus(getEffectiveAutoConvert(), configManager.getSupportedExtensions());
                     }
                 });
@@ -112,11 +138,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (!projectManager || !statusManager) return;
 
         const enabled = await projectManager.enableForProject(undefined, true);
-        if (enabled && fileWatcher) {
+        if (enabled) {
             // Reinitialize file watcher when project is enabled
-            fileWatcher.dispose();
-            fileWatcher = new FileWatcher(converter, configManager, projectManager);
-            context.subscriptions.push(fileWatcher);
+            attachFileWatcher();
             statusManager.showWatcherStatus(getEffectiveAutoConvert(), configManager.getSupportedExtensions());
         }
     });
@@ -125,11 +149,8 @@ export function activate(context: vscode.ExtensionContext) {
         if (!projectManager || !statusManager) return;
         
         await projectManager.disableForProject();
-        if (fileWatcher) {
-            fileWatcher.dispose();
-            fileWatcher = undefined;
-            statusManager.showWatcherStatus(false, []);
-        }
+        detachFileWatcher();
+        statusManager.showWatcherStatus(false, []);
     });
 
     const showProjectStatusCommand = vscode.commands.registerCommand('documentConverter.showProjectStatus', () => {
@@ -183,14 +204,9 @@ export function activate(context: vscode.ExtensionContext) {
         statusManager
     );
 
-    // Add file watcher if it exists
-    if (fileWatcher) {
-        context.subscriptions.push(fileWatcher);
-    }
-
     // Update status
     statusManager.updateStatusBar(getStatusText('ready'));
-    const watcherEnabled = projectManager.isProjectEnabled() && getEffectiveAutoConvert();
+    const watcherEnabled = !!projectManager?.isProjectEnabled() && getEffectiveAutoConvert();
     statusManager.showWatcherStatus(watcherEnabled, configManager.getSupportedExtensions());
 }
 
