@@ -1,190 +1,112 @@
-# DocuGenius - AI编程工具的本地知识库管理专家
+# DocuGenius
 
-🚀 **专为产品经理打造的本地知识库解决方案，让AI编程工具轻松理解你的业务文档！**
+> 本地文档转 Markdown 工具，让 AI 编程工具直接读懂你的业务文档。
 
-## 🤔 什么是 DocuGenius？
+[![Version](https://img.shields.io/badge/version-2.5.0-blue)](https://github.com/brucevanfdm/DocuGenius/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-DocuGenius 是一个专业的 VSCode 插件，专门为使用 AI 编程工具的产品经理设计。它能够将你的 Word、Excel、PowerPoint 和 PDF 文件转换为 AI 友好的 Markdown 格式，让 Trae AI、CodeBuddy、Qoder等 AI 编程工具能够直接理解和处理你的业务文档。
+DocuGenius 是一个 VSCode 插件，将 Word、Excel、PowerPoint、PDF 转换为结构化的 Markdown，让 Trae AI、CodeBuddy、Cursor 等 AI 编程工具能够原生理解你的产品文档、数据表格和技术资料。
 
-### 💡 为什么产品经理需要 DocuGenius？
+## 快速开始
 
-作为产品经理，你是否在日常工作中遇到过这些真实场景：
+### 安装
 
-- **📝 材料创作困境**: 需要基于历史PRD快速生成新产品方案，但AI工具无法理解Word文档格式，只能手动复制粘贴？
-- **📊 数据分析瓶颈**: Excel中有大量用户行为数据和产品指标，想让AI帮你生成分析报告，但上传表格后AI无法准确理解数据结构？
-- **🔍 竞品研究低效**: 收集了大量竞品PDF资料，想快速生成对比分析，但需要逐个手动整理才能让AI处理？
-- **💰 成本压力**: Claude Project每月$20且功能受限，ChatGPT Project免费版有严格限制，付费版同样昂贵？
-- **🔒 安全顾虑**: 产品路线图、用户隐私数据等敏感信息不能上传云端，但又需要AI协助分析？
-- **⏰ 效率痛点**: 每次都要手动整理文档格式，将2小时的文档整理工作变成30秒的AI问答？
+**方式一：插件市场（推荐）**
 
-DocuGenius 专为解决产品经理这些真实工作痛点而生！
-
-## ✨ 核心功能
-
-### 📄 智能文档转换
-
-- **Word 文档 (.docx)**: 完整提取文字内容和图片
-- **Excel 表格 (.xlsx)**: 转换为结构化的 Markdown 表格
-- **PowerPoint (.pptx)**: 提取幻灯片内容和图片
-- **PDF 文件 (.pdf)**: 高质量文字提取
-
-### 🧠 AI 优化处理
-
-- **结构化输出**: 转换后的内容完美适配各种 AI 助手
-- **批量处理**: 一键转换整个本地文件夹
-- **实时同步**: 文档修改后自动更新
-
-## 🎯 产品经理实际工作场景
-
-### 📝 产品材料创作与优化
-
-- **新材料生成**: 基于现有产品文档生成新的产品介绍、方案文档、宣传文稿
-- **产品参数整理**: 从技术文档中提取和整理产品参数，生成标准化的产品规格书
-- **方案迭代**: 利用历史方案文档快速生成新版本的产品方案
-- **内容扩展**: 基于核心材料生成不同场景下的产品介绍和推广内容
-
-### 🔍 竞品分析与市场洞察
-
-- **竞品文档分析**: 将竞品资料转换后让 AI 自动生成结构化的竞品分析报告
-- **功能对比**: 基于竞品材料快速生成功能对比表和差异化分析
-- **市场定位**: 结合竞品信息和自身产品文档，生成市场定位策略
-
-### 📋 功能规划与需求管理
-
-- **功能清单生成**: 从产品文档中自动提取和整理功能清单
-- **功能扩展规划**: 基于现有功能文档生成扩展功能清单和路线图
-- **需求验证**: 通过问答方式快速核对和确认产品参数、功能细节
-- **开发协作**: 将产品需求转换为技术可理解的开发任务和接口文档
-
-## 💰 产品经理的成本优化方案
-
-### 传统方案 vs DocuGenius + AI编程工具
-
-| 方案                           | 月费用 | Excel支持     | 产品文档处理  | 文档数量限制       | 适合产品经理  |
-| ------------------------------ | ------ | ------------- | ------------- | ------------------ | ------------- |
-| **Claude Project**       | $20    | ❌ 不支持     | ⚠️ 基础功能 | ⚠️ 有限文档/大小 | ⚠️ 功能受限 |
-| **ChatGPT Plus**         | $20    | ⚠️ 基础支持 | ⚠️ 通用场景 | ❌ 25文件/项目     | ⚠️ 非专业化 |
-| **DocuGenius + Trae AI** | ~$10   | ✅ 完整支持   | ✅ 专业优化   | ✅ 无限制          | ✅ 完美匹配   |
-
-> 💡 **专业 + 经济**: 为产品经理量身定制的AI编程工具知识库解决方案！
-
-## 🚀 快速开始
-
-### 1️⃣ 安装插件
-
-**方式一：插件商店直接安装（推荐）**
-
-1. 在 Trae AI、CodeBuddy、VSCode插件市场搜索 "DocuGenius"
-2. 点击安装，自动完成
+在 VSCode / Trae / CodeBuddy 插件市场搜索 `DocuGenius`，点击安装。
 
 **方式二：手动安装**
 
-1. 下载最新版本：[GitHub Releases](https://github.com/brucevanfdm/DocuGenius/releases/latest)
-2. 在 Trae AI、CodeBuddy、Qoder 中安装 `.vsix` 文件
+1. 下载最新 `.vsix`：[GitHub Releases](https://github.com/brucevanfdm/DocuGenius/releases/latest)
+2. 在编辑器中选择「从 VSIX 安装」
 
-### 2️⃣ 转换文档
+### 使用
 
-**单个文件转换**
+**转换单个文件**
 
-1. 右键点击文档文件
-2. 选择 "[DocuGenius]Convert to Markdown"
-3. 文档自动转换到 `DocuGenius/` 文件夹
+右键点击文档 → 选择 `[DocuGenius] Convert to Markdown` → 输出到 `DocuGenius/` 目录
 
 **批量转换**
 
-1. 右键点击文件夹或工作区
-2. 选择 "[DocuGenius]Process All Files in Folder"
-3. 批量处理文件夹内所有支持的文档格式
+右键点击文件夹 → 选择 `[DocuGenius] Process All Files in Folder`
 
-### 3️⃣ 开始使用
+转换完成后，直接在 AI 问答窗口中引用这些 Markdown 文件即可。
 
-1. 在你喜欢的 AI IDE 中打开项目文件夹
-2. 选择 Chat/问答模式开始对话，Trae 还可以导入自定义智能体「知识精灵」，点击 `https://s.trae.ai/a/9f805c` 立即复刻
-3. AI 现在可以"看懂"你的文档了！开始享受智能问答和文档分析带来的效率提升吧！
+## 支持格式
 
-## 📁 转换效果
+| 格式 | 扩展名 | 转换效果 |
+|------|--------|----------|
+| Word | `.docx` | 保留文本层级、提取图片到 `images/` |
+| Excel | `.xlsx` | 转为结构化 Markdown 表格 |
+| PowerPoint | `.pptx` | 逐页提取文本和图片 |
+| PDF | `.pdf` | 高质量文字提取 |
 
-### 转换前
+## 特性
+
+- **纯本地处理** — 文档不上传云端，敏感数据更安全
+- **无数量限制** — 不受云端知识库文件数量/大小限制
+- **AI 原生格式** — 输出结构化 Markdown，适配各类 AI 编程工具
+- **批量转换** — 支持整个文件夹一键处理
+
+## 典型场景
+
+- **产品材料创作**：基于历史 PRD 快速生成新方案
+- **数据分析**：将 Excel 指标表交给 AI 生成分析结论
+- **竞品研究**：批量转换竞品 PDF 资料，生成结构化对比报告
+- **需求管理**：从产品文档中提取功能清单、核对参数细节
+
+## 效果对比
+
+转换前：
 
 ```
-你的项目/
-├── 产品需求.docx     # AI 无法直接理解
-├── 数据分析.xlsx     # 格式复杂
+项目/
+├── 产品需求.docx     # AI 无法直接读取
+├── 用户数据.xlsx     # AI 难以理解结构
 └── 技术文档.pdf      # 需要手动复制粘贴
 ```
 
-### 转换后
+转换后：
 
 ```
-你的项目/
+项目/
 ├── 原始文档/
 │   ├── 产品需求.docx
-│   ├── 数据分析.xlsx
+│   ├── 用户数据.xlsx
 │   └── 技术文档.pdf
-└── DocuGenius/        # AI 可直接理解的知识库
-    ├── 产品需求.md    # 结构化的 Markdown
-    ├── 数据分析.md    # 表格转换为文本
-    ├── 技术文档.md    # 纯文本提取
-    └── images/        # 智能提取的图片
+└── DocuGenius/        # AI 可直接引用的知识库
+    ├── 产品需求.md
+    ├── 用户数据.md
+    ├── 技术文档.md
+    └── images/
         ├── 产品需求/
         └── 技术文档/
 ```
 
-## 🎉 成功案例展示
+## 系统要求
 
-### 📚 88万字大文档处理能力验证
+- **macOS**：开箱即用（Intel / Apple Silicon）
+  - Apple Silicon 设备需安装 Rosetta 2：
+  ```bash
+  sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+  ```
+- **Windows**：需预先安装 Python 3.6+（依赖库会自动安装）
 
-![文档处理示例](image-demo.png)
+## 常见问题
 
-**处理能力验证**: DocuGenius 成功处理了88万字的大型文档集合，证明了强大的文档处理能力：
+**Q: 与 Claude Project / ChatGPT Project 有什么区别？**
 
-- 📄 **大文件支持**: 轻松处理超大型文档，无文件大小限制
-- 🔍 **精准检索**: 在海量内容中秒速定位关键信息
-- 💬 **智能问答**: 支持基于大量文档的复杂多轮对话
-- ⚡ **高效处理**: 大容量文档转换和AI分析响应迅速
-- 🎯 **内容理解**: AI能够准确理解和分析复杂的文档结构
+A: DocuGenius 是本地转换方案，无文件数量和大小限制，且完全支持 Excel 表格转换。转换后的 Markdown 可在任意 AI 编程工具中使用，成本更低，数据更安全。
 
-### 💼 产品经理实际应用场景
+**Q: 文档数据是否安全？**
 
-**日常工作流程**: 产品经理使用 DocuGenius + AI编程工具的典型工作场景：
+A: 文档转换过程完全在本地执行，不会上传到任何服务器。使用 AI 问答时调用云端大模型属于正常的 AI 工具使用流程。
 
-- 📝 **快速生成**: 基于历史产品文档30秒生成新产品介绍或宣传文稿
-- 🔍 **竞品分析**: 上传竞品资料后5分钟完成结构化分析报告
-- 📋 **功能规划**: 从技术文档中自动提取功能清单，节省2小时整理时间
-- ❓ **参数核对**: 通过问答快速确认产品参数，避免手动翻阅文档
+**Q: 是否支持预览 Office 和 PDF 文件？**
 
-## ❓ 常见问题
+A: 不支持。DocuGenius 专注文档转换，如需在 IDE 中预览原始文件，建议搭配 Office Viewer 类插件使用。
 
-### Q: DocuGenius 和 Claude Project/ChatGPT Project 有什么区别？
+## 作者
 
-A: Claude Project 和 ChatGPT Project 都是通用的知识库功能，虽然可以免费使用但都有严格限制（文件数量、大小、处理能力等），付费版本月费均为 $20。DocuGenius 专为产品经理设计，本地转换更安全更便宜，特别是完整支持产品经理常用的 Excel 数据分析文件，无文件数量和大小限制。
-
-### Q: 我的产品文档安全吗？
-
-A: 文档转换过程完全本地化！DocuGenius 在你的电脑本地处理文档转换，敏感的产品规划和用户数据不会上传到任何服务器。需要注意的是，当你使用 AI 编程工具进行问答时，会调用云端大模型服务，但这是标准的 AI 工具使用流程。
-
-### Q: DocuGenius 不支持预览 Word、Excel、PPT、PDF 文件吗？
-
-A: DocuGenius 专注于文档转换功能，不支持预览 Office 文档和 PDF 文件，但这完全不影响 AI 理解和分析这些文档内容。如果你需要在 IDE 中预览这些文件，建议安装 **Office Viewer** 插件来获得完整的文档预览体验。
-
-### Q: Trae AI、CodeBuddy、Qoder、VSCode推荐用哪个？
-
-A: 如果有付费订阅trae，建议使用trae，如果用VSCode，要搭配 GitHub Copilot（也是一个插件）使用。每月50次免费问答，基于Claude sonnet 3.5。
-
-## 🔧 系统要求
-
-- **Windows**: 需要 Python 3.6+（需要手动安装Python，依赖库将自动安装）
-- **macOS**: 开箱即用，支持 Intel 和 Apple Silicon
-  - **Intel Mac**: 直接使用，无需额外配置
-  - **Apple Silicon Mac**: 通过 Rosetta 2 完全兼容，所有功能正常使用
-    - 需要安装 Rosetta 2，打开终端，运行以下指令：
-    - `sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license`
-
-**专业产品经理的AI编程工具知识库管理首选，让你的产品文档发挥最大价值！** 🚀
-
-> 💼 **专为产品经理打造**: DocuGenius 不仅仅是文档转换工具，更是产品经理在AI时代的专业工作伙伴。结合 Trae AI 等先进的AI编程工具，让你的产品管理工作更智能、更高效！
-
-## 🌐 作者社交与项目地址
-
-- X: https://x.com/bruc3van
-- GitHub: https://github.com/bruc3van
+- X: [@bruc3van](https://x.com/bruc3van)
+- GitHub: [@bruc3van](https://github.com/bruc3van)
