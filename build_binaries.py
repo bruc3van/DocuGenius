@@ -436,8 +436,10 @@ def create_darwin_binary():
         if os.path.exists(env_dir):
             shutil.rmtree(env_dir)
 
+        python_cmd = sys.executable
+        print(f"Using Python: {python_cmd}")
         print(f"Creating build environment: {env_dir}")
-        success, _, _ = run_command(f"python3 -m venv {env_dir}")
+        success, _, _ = run_command(f'"{python_cmd}" -m venv {env_dir}')
         if not success:
             print("Failed to create virtual environment")
             return False
