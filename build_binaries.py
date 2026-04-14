@@ -23,6 +23,39 @@ def run_command(cmd, capture_output=True):
     except Exception as e:
         return False, "", str(e)
 
+def normalize_macos_arch_name(arch_name):
+    """Normalize architecture aliases used by the workflow."""
+    if not arch_name:
+        return None
+
+    normalized = arch_name.strip().lower()
+    aliases = {
+        "x64": "x86_64",
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "arm64": "arm64",
+        "aarch64": "arm64",
+    }
+    return aliases.get(normalized, normalized)
+
+def inspect_macos_binary_architectures(binary_path):
+    """Inspect a macOS binary with `file` and return normalized architectures."""
+    success, stdout, stderr = run_command(f'file -b "{binary_path}"')
+    if not success:
+        error_output = stderr.strip() or stdout.strip() or "unknown error"
+        raise RuntimeError(f"Failed to inspect binary architecture: {error_output}")
+
+    file_output = stdout.strip()
+    architectures = []
+    for arch in ("x86_64", "arm64"):
+        if arch in file_output:
+            architectures.append(arch)
+
+    if not architectures:
+        raise RuntimeError(f"Could not determine binary architecture from: {file_output}")
+
+    return architectures, file_output
+
 def create_cli_source():
     """Create the CLI source code with integrated image extraction"""
     cli_source = '''#!/usr/bin/env python3
@@ -418,7 +451,7 @@ if __name__ == "__main__":
 '''
     return cli_source
 
-def create_darwin_binary():
+def create_darwin_binary(expected_arch=None):
     """Create macOS binary using PyInstaller"""
     print("Building DocuGenius macOS binary...")
 
@@ -426,6 +459,9 @@ def create_darwin_binary():
     import platform
     current_arch = platform.machine()
     print(f"Current system architecture: {current_arch}")
+    expected_arch = normalize_macos_arch_name(expected_arch)
+    if expected_arch:
+        print(f"Expected output architecture: {expected_arch}")
 
     # Use the shared converter.py as entry point for PyInstaller
     cli_file = str(Path('bin/converter.py').resolve())
@@ -482,6 +518,16 @@ def create_darwin_binary():
 
         shutil.copy2(exe_path, target_path)
         os.chmod(target_path, 0o755)
+
+        built_architectures, file_output = inspect_macos_binary_architectures(target_path)
+        print(f"Binary architecture: {', '.join(built_architectures)}")
+        print(f"`file` output: {file_output}")
+
+        if expected_arch and built_architectures != [expected_arch]:
+            raise RuntimeError(
+                f"Expected a {expected_arch} binary, but built {', '.join(built_architectures)}. "
+                "Check the GitHub Actions runner label and Python architecture."
+            )
 
         print(f"Binary created: {target_path}")
         print(f"File size: {os.path.getsize(target_path) / (1024*1024):.1f} MB")
@@ -597,11 +643,13 @@ def main():
     else:
         target = "all"
 
+    expected_arch = normalize_macos_arch_name(sys.argv[2]) if len(sys.argv) > 2 else None
+
     success = True
 
     if target in ["all", "darwin", "macos"]:
         if current_platform == "darwin" or target != "all":
-            success &= create_darwin_binary()
+            success &= create_darwin_binary(expected_arch=expected_arch)
         else:
             print("Skipping macOS binary (not on macOS)")
 
