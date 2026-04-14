@@ -1,5 +1,19 @@
 # DocuGenius 更新日志
 
+## [2.5.0] - 2025-04-14
+
+### 主要更新
+
+- 合并 FileSystemWatcher 为单一 glob pattern，减少资源开销
+- 新建 constants.ts，统一扩展名常量，消除多处重复定义
+- 修复 StatusManager setTimeout 泄漏，避免状态栏闪烁
+- 删除 converter.ts 中的死代码（未调用的私有方法）
+- 解除 ConfigurationManager 与 ProjectManager 的循环依赖
+- 简化项目状态判定：废弃 marker 文件机制，仅保留 .docugenius.json + 历史目录兼容
+- 将子进程调用从 exec 重构为 spawn，消除命令注入风险
+- 提取 splitByHeaders / createIndexFile 到 utils.ts 并添加 Mocha 单元测试
+- tsconfig 开启 noUnusedLocals、noImplicitReturns、strictNullChecks
+
 ## [2.4.3] - 2025-12-11
 
 ### 🔧 修复

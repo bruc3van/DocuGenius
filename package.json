@@ -2,21 +2,21 @@
   "name": "docugenius",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "2.4.3",
-  "publisher": "brucevan",
+  "version": "2.5.0",
+  "publisher": "bruc3van",
   "author": {
-    "name": "brucevan",
+    "name": "bruc3van",
     "email": "brucevanfdm@gmail.com"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/brucevanfdm/docugenius"
+    "url": "https://github.com/bruc3vanfdm/docugenius"
   },
   "bugs": {
-    "url": "https://github.com/brucevanfdm/docugenius/issues"
+    "url": "https://github.com/bruc3vanfdm/docugenius/issues"
   },
-  "homepage": "https://github.com/brucevanfdm/docugenius#readme",
+  "homepage": "https://github.com/bruc3vanfdm/docugenius#readme",
   "keywords": [
     "markdown",
     "converter",

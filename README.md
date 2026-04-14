@@ -186,5 +186,5 @@ A: 如果有付费订阅trae，建议使用trae，如果用VSCode，要搭配 Gi
 
 ## 🌐 作者社交与项目地址
 
-- X: https://x.com/brucevanfdm
-- GitHub: https://github.com/brucevanfdm
+- X: https://x.com/bruc3van
+- GitHub: https://github.com/bruc3van
