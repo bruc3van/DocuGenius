@@ -8,6 +8,9 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: write
+
 jobs:
   build-macos-x64:
     runs-on: macos-latest
@@ -25,10 +28,15 @@ jobs:
           architecture: x64
 
       - name: Verify Python architecture
-        run: python3 -c "import platform; print(platform.machine())"
+        run: |
+          which python3
+          python3 -c "import platform; print(platform.machine())"
 
       - name: Build macOS x64 binary
         run: python3 build_binaries.py darwin
+
+      - name: Inspect binary
+        run: file bin/darwin/docugenius-cli
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -49,10 +57,15 @@ jobs:
           python-version: '3.11'
 
       - name: Verify Python architecture
-        run: python3 -c "import platform; print(platform.machine())"
+        run: |
+          which python3
+          python3 -c "import platform; print(platform.machine())"
 
       - name: Build macOS arm64 binary
         run: python3 build_binaries.py darwin
+
+      - name: Inspect binary
+        run: file bin/darwin/docugenius-cli
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -64,6 +77,8 @@ jobs:
   package-and-release:
     needs: [build-macos-x64, build-macos-arm64]
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,6 +106,13 @@ jobs:
           name: darwin-arm64
           path: bin/darwin-arm64/
 
+      - name: Inspect downloaded artifacts
+        run: |
+          ls -la bin/darwin-x64/
+          ls -la bin/darwin-arm64/
+          file bin/darwin-x64/docugenius-cli || true
+          file bin/darwin-arm64/docugenius-cli || true
+
       - name: Create macOS universal binary
         run: |
           mkdir -p bin/darwin
@@ -101,11 +123,11 @@ jobs:
       - name: Verify Windows batch script exists
         run: test -f bin/win32/docugenius-cli.bat
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
-
       - name: Package extension
-        run: vsce package
+        run: npx vsce package
+
+      - name: List artifacts
+        run: ls -la *.vsix
 
       - name: Upload GitHub Release
         uses: softprops/action-gh-release@v2
