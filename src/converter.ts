@@ -8,9 +8,16 @@ import { localize } from './i18n';
 import { COPYABLE_EXTENSIONS } from './constants';
 import { splitByHeaders, createIndexFile } from './utils';
 
+interface ConverterCommand {
+    command: string;
+    args: string[];
+    usesPythonConverter: boolean;
+    description: string;
+}
+
 function runCommand(command: string, args: string[], timeout: number): Promise<string> {
     return new Promise((resolve, reject) => {
-        const child = spawn(command, args, { shell: true });
+        const child = spawn(command, args, { shell: false });
         let stdout = '';
         let stderr = '';
 
@@ -30,7 +37,8 @@ function runCommand(command: string, args: string[], timeout: number): Promise<s
         child.on('close', (code) => {
             clearTimeout(timer);
             if (code !== 0) {
-                reject(new Error(stderr || `Command exited with code ${code}`));
+                const failureOutput = stderr.trim() || stdout.trim();
+                reject(new Error(failureOutput || `Command exited with code ${code}`));
             } else if (stderr && !stdout) {
                 reject(new Error(`Command error: ${stderr}`));
             } else {
@@ -286,39 +294,28 @@ export class MarkitdownConverter {
 
             let lastError: Error | null = null;
 
-            for (const command of commands) {
+            for (const converterCommand of commands) {
                 try {
-                    // Check if this is a Python converter and pass extract images config
-                    // For Windows, docugenius-cli.bat calls converter.py internally
-                    // For other platforms, we might use converter.py directly
-                    const isPythonConverter = command.includes('converter.py') ||
-                                            (process.platform === 'win32' && command.includes('docugenius-cli.bat'));
-                    let args: string[];
+                    let args = [...converterCommand.args];
 
-                    if (isPythonConverter) {
+                    if (converterCommand.usesPythonConverter) {
                         // Pass extract images configuration to Python converter
                         const extractImages = this.configManager.shouldExtractImages();
                         const outputPath = this.getOutputPath(filePath);
-                        args = [filePath, extractImages ? 'true' : 'false', outputPath];
+                        args.push(filePath, extractImages ? 'true' : 'false', outputPath);
                     } else {
-                        args = [filePath];
+                        args.push(filePath);
                     }
 
                     // Add timeout for Windows to prevent hanging
                     const timeout = process.platform === 'win32' ? 120000 : 180000; // 2min for Windows, 3min for others
 
-                    const stdout = await runCommand(command, args, timeout);
+                    const stdout = await runCommand(converterCommand.command, args, timeout);
 
                     // Process the markdown content to handle images if needed
                     let markdownContent = stdout;
 
-                    // Check if we used Python converter (which includes image extraction)
-                    // For Windows, we use docugenius-cli.bat which calls converter.py internally
-                    // For other platforms, we might use converter.py directly
-                    const usedPythonConverter = command.includes('converter.py') ||
-                                              (process.platform === 'win32' && command.includes('docugenius-cli.bat'));
-
-                    if (this.configManager.shouldExtractImages() && !usedPythonConverter) {
+                    if (this.configManager.shouldExtractImages() && !converterCommand.usesPythonConverter) {
                         // Only do additional image processing if we didn't use Python converter
                         // Python converter already includes intelligent image extraction
                         markdownContent = await this.processImages(filePath, markdownContent);
@@ -328,20 +325,29 @@ export class MarkitdownConverter {
 
                 } catch (error) {
                     lastError = error instanceof Error ? error : new Error(String(error));
-                    console.log(`Command failed: ${command}, Error: ${lastError.message}`);
+                    console.log(`Command failed: ${converterCommand.description}, Error: ${lastError.message}`);
                     continue; // Try next command
                 }
             }
 
             // If all commands failed, throw helpful error
-            const hasEmbeddedBinary = fs.existsSync(this.context.asAbsolutePath(`bin/${process.platform}/docugenius-cli${process.platform === 'win32' ? '.bat' : ''}`));
+            const hasBuiltInConverter = process.platform === 'win32'
+                ? fs.existsSync(this.context.asAbsolutePath('bin/converter.py'))
+                : fs.existsSync(this.context.asAbsolutePath(`bin/${process.platform}/docugenius-cli`));
 
-            if (hasEmbeddedBinary) {
+            if (hasBuiltInConverter) {
+                const troubleshooting = process.platform === 'win32'
+                    ? `Windows built-in Python converter failed to execute. This is usually caused by:\n\n` +
+                      `1. Python is not installed or not in PATH\n` +
+                      `2. Required Python packages could not be installed\n` +
+                      `3. File path or permission issues\n\n`
+                    : `Embedded converter binary failed to execute. This might be due to:\n\n` +
+                      `1. Missing system libraries\n` +
+                      `2. Architecture mismatch\n` +
+                      `3. Permission issues\n\n`;
+
                 throw new Error(
-                    `Embedded converter binary failed to execute. This might be due to:\n\n` +
-                    `1. Missing system libraries\n` +
-                    `2. Architecture mismatch\n` +
-                    `3. Permission issues\n\n` +
+                    troubleshooting +
                     `Last error: ${lastError?.message || 'Unknown error'}`
                 );
             } else {
@@ -462,16 +468,35 @@ export class MarkitdownConverter {
     /**
      * Get available converter commands in order of preference
      */
-    private getConverterCommands(): string[] {
+    private getConverterCommands(): ConverterCommand[] {
         const platform = process.platform;
-        const commands: string[] = [];
+        const commands: ConverterCommand[] = [];
+
+        if (platform === 'win32') {
+            const embeddedConverterPath = this.context.asAbsolutePath('bin/converter.py');
+
+            if (fs.existsSync(embeddedConverterPath)) {
+                commands.push({
+                    command: 'python',
+                    args: [embeddedConverterPath],
+                    usesPythonConverter: true,
+                    description: `python ${embeddedConverterPath}`
+                });
+            }
+
+            return commands;
+        }
 
         // Simple approach: use platform-specific binary
-        const binaryName = platform === 'win32' ? 'docugenius-cli.bat' : 'docugenius-cli';
-        const embeddedBinaryPath = this.context.asAbsolutePath(`bin/${platform}/${binaryName}`);
-        
+        const embeddedBinaryPath = this.context.asAbsolutePath(`bin/${platform}/docugenius-cli`);
+
         if (fs.existsSync(embeddedBinaryPath)) {
-            commands.push(embeddedBinaryPath);
+            commands.push({
+                command: embeddedBinaryPath,
+                args: [],
+                usesPythonConverter: false,
+                description: embeddedBinaryPath
+            });
         }
 
         return commands;

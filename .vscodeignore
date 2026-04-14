@@ -94,3 +94,11 @@ jspm_packages/
 # Shell script versions (we use binaries now)
 bin/darwin/docugenius-cli.sh
 bin/win32/docugenius-cli.sh
+
+# Intermediate build artifacts
+bin/darwin-x64/**
+bin/darwin-arm64/**
+
+# Python cache
+**/__pycache__/**
+*.pyc

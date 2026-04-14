@@ -556,30 +556,29 @@ def create_windows_batch():
     win32_dir = Path("bin/win32")
     win32_dir.mkdir(parents=True, exist_ok=True)
 
-    # Get the CLI source and modify it for Windows batch
-    cli_source = create_cli_source()
-
-    # Convert CLI source to Windows batch format
-    # Replace Python source with Windows batch commands that create and run a temp Python script
-    python_lines = cli_source.split('\n')[3:]  # Skip shebang and docstring start
-
     batch_content = '''@echo off
 REM DocuGenius CLI for Windows
-setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
+setlocal
+
+set PYTHONIOENCODING=utf-8
+set PYTHONUTF8=1
 
 if "%~1"=="" (
-    echo DocuGenius CLI - Document to Markdown Converter
-    echo Usage: docugenius-cli ^<file^>
+    echo DocuGenius CLI - Document to Markdown Converter with Image Extraction
+    echo Usage: docugenius-cli ^<file^> [extract_images] [output_path]
     echo.
     echo Supported formats:
     echo   - Text files: .txt, .md, .markdown
     echo   - Data files: .json, .csv, .xml, .html
     echo   - Documents: .docx, .xlsx, .pptx, .pdf
+    echo.
+    echo Note: Python must be installed and available in PATH.
     exit /b 1
 )
 
 if not exist "%~1" (
-    echo Error: File not found: %~1
+    echo Error: File not found: "%~1"
     exit /b 1
 )
 
@@ -587,36 +586,20 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo Error: Python is not installed or not in PATH
     echo Please install Python from https://python.org
-    echo Note: You may need to install: pip install python-docx python-pptx openpyxl pdfplumber
     exit /b 1
 )
 
-REM Create temporary Python script
-set TEMP_SCRIPT=%TEMP%\\docugenius_temp_%RANDOM%.py
+set "SCRIPT_DIR=%~dp0"
+set "CONVERTER=%SCRIPT_DIR%..\\converter.py"
 
-(
-'''
+if not exist "%CONVERTER%" (
+    echo Error: converter.py not found at "%CONVERTER%"
+    echo Please reinstall the DocuGenius extension.
+    exit /b 1
+)
 
-    # Add Python code to batch file, escaping special characters
-    for line in python_lines:
-        if line.strip():
-            # Escape special batch characters
-            escaped_line = line.replace('^', '^^').replace('&', '^&').replace('<', '^<').replace('>', '^>').replace('|', '^|')
-            escaped_line = escaped_line.replace('(', '^(').replace(')', '^)')
-            batch_content += f"echo {escaped_line}\n"
-        else:
-            batch_content += "echo.\n"
-
-    batch_content += ''') > "%TEMP_SCRIPT%"
-
-REM Run the Python script
-python "%TEMP_SCRIPT%" "%~1"
-set RESULT=%ERRORLEVEL%
-
-REM Clean up temporary script
-del "%TEMP_SCRIPT%" >nul 2>&1
-
-exit /b %RESULT%
+python "%CONVERTER%" "%~1" "%~2" "%~3"
+exit /b %ERRORLEVEL%
 '''
 
     target_path = win32_dir / "docugenius-cli.bat"

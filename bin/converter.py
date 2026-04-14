@@ -20,6 +20,7 @@ import re
 import io
 import struct
 import hashlib
+import traceback
 import xml.etree.ElementTree as ET
 
 SUPPORTED_EXTENSIONS = ['.docx', '.xlsx', '.pptx', '.pdf']
@@ -939,7 +940,7 @@ def _check_ooxml_decorative_flag(element, namespaces=None):
 
     return is_decorative, alt_text
 
-def convert_docx(file_path, image_save_dir=None, image_rel_dir=None):
+def _convert_docx_advanced(file_path, image_save_dir=None, image_rel_dir=None):
     """转换 Word 文档，支持标题、格式、列表（含编号/层级）和图片提取"""
     import docx
 
@@ -1190,6 +1191,65 @@ def convert_docx(file_path, image_save_dir=None, image_rel_dir=None):
                 content += "\n"
 
     return content.strip(), extracted_images
+
+def _convert_docx_fallback(file_path):
+    """使用 python-docx 的稳定高层 API 回退转换，避免复杂 OOXML 结构导致整份文档失败"""
+    import docx
+
+    doc = docx.Document(file_path)
+    content_parts = [f"# {os.path.basename(file_path)}", ""]
+
+    for paragraph in doc.paragraphs:
+        text = _normalize_text(paragraph.text, preserve_newlines=True)
+        if not text:
+            continue
+
+        style = getattr(paragraph, "style", None)
+        heading_level = _get_docx_heading_level(style)
+        if heading_level is not None:
+            content_parts.append(f"{'#' * min(heading_level, 6)} {text}")
+            content_parts.append("")
+            continue
+
+        content_parts.append(_escape_plain_markdown_text(text))
+        content_parts.append("")
+
+    for table in doc.tables:
+        table_rows = []
+        for row in table.rows:
+            row_data = [_normalize_table_cell(cell.text) for cell in row.cells]
+            if any(cell.strip() for cell in row_data):
+                table_rows.append(row_data)
+
+        if not table_rows:
+            continue
+
+        max_cols = max(len(row) for row in table_rows)
+        normalized_rows = [row + [""] * (max_cols - len(row)) for row in table_rows]
+
+        for index, row_data in enumerate(normalized_rows):
+            content_parts.append("| " + " | ".join(row_data) + " |")
+            if index == 0:
+                content_parts.append("| " + " | ".join(["---"] * max_cols) + " |")
+        content_parts.append("")
+
+    content = "\n".join(content_parts).strip()
+    if not content:
+        content = f"# {os.path.basename(file_path)}"
+    return content, []
+
+def convert_docx(file_path, image_save_dir=None, image_rel_dir=None):
+    """优先使用高级 DOCX 转换；异常时回退到稳定的基础转换并保留诊断日志"""
+    try:
+        return _convert_docx_advanced(file_path, image_save_dir, image_rel_dir)
+    except Exception as error:
+        logger.warning(
+            "Advanced DOCX conversion failed for %s, falling back to basic parser: %s",
+            file_path,
+            error,
+            exc_info=True,
+        )
+        return _convert_docx_fallback(file_path)
 
 def convert_xlsx(file_path, image_save_dir=None, image_rel_dir=None):
     """转换 Excel 文件，支持多表头、空白分隔区、冻结窗格、常见格式保留和图片提取"""
@@ -2531,7 +2591,13 @@ def main():
 
         print(markdown_content)
     except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
+        error_message = str(e).strip()
+        error_label = type(e).__name__
+        if error_message:
+            print(f"Error: {error_label}: {error_message}", file=sys.stderr)
+        else:
+            print(f"Error: {error_label}: No details provided by the underlying library.", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 if __name__ == '__main__':

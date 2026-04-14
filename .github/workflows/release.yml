@@ -102,30 +102,31 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: darwin-x64
-          path: bin/darwin-x64/
+          path: ${{ runner.temp }}/darwin-x64/
 
       - name: Download macOS arm64 binary
         uses: actions/download-artifact@v4
         with:
           name: darwin-arm64
-          path: bin/darwin-arm64/
+          path: ${{ runner.temp }}/darwin-arm64/
 
       - name: Inspect downloaded artifacts
         run: |
-          ls -la bin/darwin-x64/
-          ls -la bin/darwin-arm64/
-          file bin/darwin-x64/docugenius-cli || true
-          file bin/darwin-arm64/docugenius-cli || true
-          lipo -archs bin/darwin-x64/docugenius-cli
-          lipo -archs bin/darwin-arm64/docugenius-cli
+          ls -la "${RUNNER_TEMP}/darwin-x64/"
+          ls -la "${RUNNER_TEMP}/darwin-arm64/"
+          file "${RUNNER_TEMP}/darwin-x64/docugenius-cli" || true
+          file "${RUNNER_TEMP}/darwin-arm64/docugenius-cli" || true
+          lipo -archs "${RUNNER_TEMP}/darwin-x64/docugenius-cli"
+          lipo -archs "${RUNNER_TEMP}/darwin-arm64/docugenius-cli"
 
       - name: Create macOS universal binary
         run: |
           mkdir -p bin/darwin
-          lipo -create bin/darwin-x64/docugenius-cli bin/darwin-arm64/docugenius-cli -output bin/darwin/docugenius-cli
+          lipo -create "${RUNNER_TEMP}/darwin-x64/docugenius-cli" "${RUNNER_TEMP}/darwin-arm64/docugenius-cli" -output bin/darwin/docugenius-cli
           chmod +x bin/darwin/docugenius-cli
           file bin/darwin/docugenius-cli
           lipo -archs bin/darwin/docugenius-cli | grep -E '^(x86_64 arm64|arm64 x86_64)$'
+          rm -rf bin/darwin-x64 bin/darwin-arm64
 
       - name: Verify Windows batch script exists
         run: test -f bin/win32/docugenius-cli.bat
