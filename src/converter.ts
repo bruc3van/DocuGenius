@@ -7,17 +7,22 @@ import { StatusManager } from './statusManager';
 import { localize } from './i18n';
 import { COPYABLE_EXTENSIONS } from './constants';
 import { splitByHeaders, createIndexFile } from './utils';
+import { RuntimeManager, ConversionTrigger, RuntimeResolution } from './runtimeManager';
 
 interface ConverterCommand {
     command: string;
     args: string[];
     usesPythonConverter: boolean;
     description: string;
+    env?: NodeJS.ProcessEnv;
 }
 
-function runCommand(command: string, args: string[], timeout: number): Promise<string> {
+function runCommand(command: string, args: string[], timeout: number, env?: NodeJS.ProcessEnv): Promise<string> {
     return new Promise((resolve, reject) => {
-        const child = spawn(command, args, { shell: false });
+        const child = spawn(command, args, {
+            shell: false,
+            env: env ? { ...process.env, ...env } : process.env
+        });
         let stdout = '';
         let stderr = '';
 
@@ -63,18 +68,25 @@ export class MarkitdownConverter {
     private context: vscode.ExtensionContext;
     private configManager: ConfigurationManager;
     private statusManager: StatusManager;
+    private runtimeManager: RuntimeManager;
     private isBatchMode: boolean = false;
 
     constructor(context: vscode.ExtensionContext, configManager: ConfigurationManager, statusManager: StatusManager) {
         this.context = context;
         this.configManager = configManager;
         this.statusManager = statusManager;
+        this.runtimeManager = new RuntimeManager(context, statusManager);
     }
 
     /**
      * Process a file (convert or copy based on type)
      */
-    async processFile(filePath: string, forceConvert: boolean = false, isBatchMode: boolean = false): Promise<ConversionResult> {
+    async processFile(
+        filePath: string,
+        forceConvert: boolean = false,
+        isBatchMode: boolean = false,
+        trigger?: ConversionTrigger
+    ): Promise<ConversionResult> {
         this.isBatchMode = isBatchMode;
         // CRITICAL: Prevent infinite loop - never process files in markdown directory
         const markdownSubdirName = this.configManager.getMarkdownSubdirectoryName();
@@ -88,7 +100,7 @@ export class MarkitdownConverter {
 
         if (supportedExtensions.includes(fileExtension)) {
             // Convert document files
-            return this.convertFile(filePath, forceConvert);
+            return this.convertFile(filePath, forceConvert, trigger ?? (isBatchMode ? 'batch' : forceConvert ? 'manual' : 'auto'));
         } else if (this.configManager.shouldCopyTextFiles()) {
             // Copy text-based files only if user has enabled this option
             return this.copyFile(filePath, forceConvert);
@@ -102,7 +114,11 @@ export class MarkitdownConverter {
     /**
      * Convert a single file to Markdown
      */
-    async convertFile(filePath: string, forceConvert: boolean = false): Promise<ConversionResult> {
+    async convertFile(
+        filePath: string,
+        forceConvert: boolean = false,
+        trigger: ConversionTrigger = forceConvert ? 'manual' : 'auto'
+    ): Promise<ConversionResult> {
         try {
             // Check if file exists
             if (!fs.existsSync(filePath)) {
@@ -114,6 +130,17 @@ export class MarkitdownConverter {
             if (!forceConvert && !this.shouldConvert(filePath, outputPath)) {
                 console.log(`Skipping conversion for ${filePath} - output is up to date`);
                 return { success: true, outputPath };
+            }
+
+            const runtime = await this.runtimeManager.ensureReadyForConversion(trigger);
+            if (!runtime.ready) {
+                const fileName = path.basename(filePath);
+                const errorMessage = runtime.error || 'Conversion runtime is not available.';
+                this.statusManager.showConversionError(fileName, errorMessage);
+                return {
+                    success: false,
+                    error: errorMessage
+                };
             }
 
             // Show progress
@@ -131,7 +158,7 @@ export class MarkitdownConverter {
 
                 try {
                     // Convert using built-in conversion engine
-                    const markdownContent = await this.callConverter(filePath);
+                    const markdownContent = await this.callConverter(filePath, trigger);
 
                     const hasContent = markdownContent.replace(/\s+/g, '').length > 0;
                     if (!hasContent) {
@@ -178,6 +205,10 @@ export class MarkitdownConverter {
                     
                 } catch (error) {
                     console.error(`Error converting ${filePath}:`, error);
+                    this.statusManager.showConversionError(
+                        fileName,
+                        error instanceof Error ? error.message : 'Unknown error'
+                    );
                     vscode.window.showErrorMessage(
                         `Failed to convert ${fileName}: ${error instanceof Error ? error.message : 'Unknown error'}`
                     );
@@ -222,6 +253,12 @@ export class MarkitdownConverter {
             }
 
             const results: ConversionResult[] = [];
+            const hasConvertibleFiles = files.some(file =>
+                this.configManager.getSupportedExtensions().includes(path.extname(file).toLowerCase())
+            );
+            const runtime = hasConvertibleFiles
+                ? await this.runtimeManager.ensureReadyForConversion('batch')
+                : { ready: true };
             
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
@@ -236,7 +273,15 @@ export class MarkitdownConverter {
                         message: `Processing ${path.basename(file)}...`
                     });
 
-                    const result = await this.processFile(file, false, true); // Enable batch mode
+                    const fileExtension = path.extname(file).toLowerCase();
+                    const isConvertible = this.configManager.getSupportedExtensions().includes(fileExtension);
+
+                    const result = isConvertible && !runtime.ready
+                        ? {
+                            success: false,
+                            error: runtime.error || 'Conversion runtime is not available.'
+                        }
+                        : await this.processFile(file, false, true, 'batch');
                     results.push(result);
                     progress.report({ increment });
                 }
@@ -284,13 +329,25 @@ export class MarkitdownConverter {
         }
     }
 
+    async installManagedRuntime(): Promise<RuntimeResolution> {
+        return this.runtimeManager.installOrRepairRuntime(false);
+    }
+
+    async repairManagedRuntime(): Promise<RuntimeResolution> {
+        return this.runtimeManager.installOrRepairRuntime(true);
+    }
+
+    async showManagedRuntimeStatus(): Promise<void> {
+        await this.runtimeManager.showRuntimeStatus();
+    }
+
     /**
      * Call built-in converter to convert file
      */
-    private async callConverter(filePath: string): Promise<string> {
+    private async callConverter(filePath: string, trigger: ConversionTrigger): Promise<string> {
         try {
             // Try embedded binary first, then fallback to system installations
-            const commands = this.getConverterCommands();
+            const commands = await this.getConverterCommands(trigger);
 
             let lastError: Error | null = null;
 
@@ -310,7 +367,7 @@ export class MarkitdownConverter {
                     // Add timeout for Windows to prevent hanging
                     const timeout = process.platform === 'win32' ? 120000 : 180000; // 2min for Windows, 3min for others
 
-                    const stdout = await runCommand(converterCommand.command, args, timeout);
+                    const stdout = await runCommand(converterCommand.command, args, timeout, converterCommand.env);
 
                     // Process the markdown content to handle images if needed
                     let markdownContent = stdout;
@@ -468,19 +525,23 @@ export class MarkitdownConverter {
     /**
      * Get available converter commands in order of preference
      */
-    private getConverterCommands(): ConverterCommand[] {
+    private async getConverterCommands(trigger: ConversionTrigger): Promise<ConverterCommand[]> {
         const platform = process.platform;
         const commands: ConverterCommand[] = [];
 
         if (platform === 'win32') {
             const embeddedConverterPath = this.context.asAbsolutePath('bin/converter.py');
+            const runtime = await this.runtimeManager.ensureReadyForConversion(this.isBatchMode ? 'batch' : trigger);
 
-            if (fs.existsSync(embeddedConverterPath)) {
+            if (fs.existsSync(embeddedConverterPath) && runtime.ready && runtime.pythonPath) {
                 commands.push({
-                    command: 'python',
+                    command: runtime.pythonPath,
                     args: [embeddedConverterPath],
                     usesPythonConverter: true,
-                    description: `python ${embeddedConverterPath}`
+                    description: `${runtime.pythonPath} ${embeddedConverterPath}`,
+                    env: {
+                        DOCUGENIUS_AUTO_INSTALL_DEPS: '0'
+                    }
                 });
             }
 

@@ -2572,7 +2572,8 @@ def main():
 
     # 调用对应转换函数
     try:
-        deps_ok, err = check_dependencies(file_ext)
+        auto_install_deps = os.environ.get('DOCUGENIUS_AUTO_INSTALL_DEPS', '1').lower() not in ('0', 'false', 'no')
+        deps_ok, err = check_dependencies(file_ext, auto_install=auto_install_deps)
         if not deps_ok:
             print(f"Error: {err}", file=sys.stderr)
             sys.exit(1)

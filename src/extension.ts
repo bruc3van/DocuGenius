@@ -158,6 +158,18 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
+    const installRuntimeCommand = vscode.commands.registerCommand('documentConverter.installRuntime', async () => {
+        await converter.installManagedRuntime();
+    });
+
+    const repairRuntimeCommand = vscode.commands.registerCommand('documentConverter.repairRuntime', async () => {
+        await converter.repairManagedRuntime();
+    });
+
+    const showRuntimeStatusCommand = vscode.commands.registerCommand('documentConverter.showRuntimeStatus', async () => {
+        await converter.showManagedRuntimeStatus();
+    });
+
     // Add disposables to context
     context.subscriptions.push(
         convertFileCommand,
@@ -165,6 +177,9 @@ export function activate(context: vscode.ExtensionContext) {
         enableProjectCommand,
         disableProjectCommand,
         showProjectStatusCommand,
+        installRuntimeCommand,
+        repairRuntimeCommand,
+        showRuntimeStatusCommand,
         statusManager
     );
 

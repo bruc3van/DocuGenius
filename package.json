@@ -155,6 +155,21 @@
         "command": "documentConverter.showProjectStatus",
         "title": "%command.showProjectStatus.title%",
         "category": "DocuGenius"
+      },
+      {
+        "command": "documentConverter.installRuntime",
+        "title": "%command.installRuntime.title%",
+        "category": "DocuGenius"
+      },
+      {
+        "command": "documentConverter.repairRuntime",
+        "title": "%command.repairRuntime.title%",
+        "category": "DocuGenius"
+      },
+      {
+        "command": "documentConverter.showRuntimeStatus",
+        "title": "%command.showRuntimeStatus.title%",
+        "category": "DocuGenius"
       }
     ],
     "menus": {
