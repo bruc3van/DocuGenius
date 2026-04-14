@@ -1,13 +1,49 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import { ConfigurationManager } from './configuration';
 import { StatusManager } from './statusManager';
 import { localize } from './i18n';
+import { COPYABLE_EXTENSIONS } from './constants';
+import { splitByHeaders, createIndexFile } from './utils';
 
-const execAsync = promisify(exec);
+function runCommand(command: string, args: string[], timeout: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, { shell: true });
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        child.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        const timer = setTimeout(() => {
+            child.kill();
+            reject(new Error(`Command timeout after ${timeout / 1000}s`));
+        }, timeout);
+
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            if (code !== 0) {
+                reject(new Error(stderr || `Command exited with code ${code}`));
+            } else if (stderr && !stdout) {
+                reject(new Error(`Command error: ${stderr}`));
+            } else {
+                resolve(stdout);
+            }
+        });
+
+        child.on('error', (error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
+    });
+}
 
 export interface ConversionResult {
     success: boolean;
@@ -167,17 +203,7 @@ export class MarkitdownConverter {
             // Find all processable files (convertible by default, copyable when enabled)
             const allExtensions = [...this.configManager.getSupportedExtensions()];
             if (this.configManager.shouldCopyTextFiles()) {
-                allExtensions.push(
-                    '.md', '.markdown', '.mdown', '.mkd', '.mkdn',
-                    '.txt', '.text',
-                    '.json', '.jsonc',
-                    '.xml', '.html', '.htm',
-                    '.csv', '.tsv',
-                    '.log',
-                    '.yaml', '.yml',
-                    '.toml', '.ini', '.cfg', '.conf',
-                    '.sql'
-                );
+                allExtensions.push(...COPYABLE_EXTENSIONS);
             }
 
             const files = this.findSupportedFiles(folderPath, allExtensions);
@@ -265,32 +291,23 @@ export class MarkitdownConverter {
                     // Check if this is a Python converter and pass extract images config
                     // For Windows, docugenius-cli.bat calls converter.py internally
                     // For other platforms, we might use converter.py directly
-                    const isPythonConverter = command.includes('converter.py') || 
+                    const isPythonConverter = command.includes('converter.py') ||
                                             (process.platform === 'win32' && command.includes('docugenius-cli.bat'));
-                    let fullCommand: string;
-                    
+                    let args: string[];
+
                     if (isPythonConverter) {
                         // Pass extract images configuration to Python converter
                         const extractImages = this.configManager.shouldExtractImages();
                         const outputPath = this.getOutputPath(filePath);
-                        fullCommand = `"${command}" "${filePath}" ${extractImages ? 'true' : 'false'} "${outputPath}"`;
+                        args = [filePath, extractImages ? 'true' : 'false', outputPath];
                     } else {
-                        fullCommand = `"${command}" "${filePath}"`;
+                        args = [filePath];
                     }
-                    
+
                     // Add timeout for Windows to prevent hanging
                     const timeout = process.platform === 'win32' ? 120000 : 180000; // 2min for Windows, 3min for others
-                    
-                    const { stdout, stderr } = await Promise.race([
-                        execAsync(fullCommand, { maxBuffer: 50 * 1024 * 1024 }), // 50MB buffer for large files
-                        new Promise<never>((_, reject) => 
-                            setTimeout(() => reject(new Error(`Conversion timeout after ${timeout/1000}s`)), timeout)
-                        )
-                    ]);
 
-                    if (stderr && !stdout) {
-                        throw new Error(`Converter error: ${stderr}`);
-                    }
+                    const stdout = await runCommand(command, args, timeout);
 
                     // Process the markdown content to handle images if needed
                     let markdownContent = stdout;
@@ -298,7 +315,7 @@ export class MarkitdownConverter {
                     // Check if we used Python converter (which includes image extraction)
                     // For Windows, we use docugenius-cli.bat which calls converter.py internally
                     // For other platforms, we might use converter.py directly
-                    const usedPythonConverter = command.includes('converter.py') || 
+                    const usedPythonConverter = command.includes('converter.py') ||
                                               (process.platform === 'win32' && command.includes('docugenius-cli.bat'));
 
                     if (this.configManager.shouldExtractImages() && !usedPythonConverter) {
@@ -571,76 +588,10 @@ export class MarkitdownConverter {
     }
 
     /**
-     * Check if a file should be converted to Markdown
-     */
-    private shouldFileBeConverted(filePath: string): boolean {
-        const fileExtension = path.extname(filePath).toLowerCase();
-
-        // Skip files that VS Code already handles well
-        const vscodeNativeFormats = [
-            '.md', '.markdown', '.mdown', '.mkd', '.mkdn',  // Markdown files
-            '.txt', '.text',                                // Plain text files
-            '.json', '.jsonc',                             // JSON files
-            '.xml', '.html', '.htm',                       // Markup files
-            '.csv', '.tsv',                                // Simple data files
-            '.log',                                        // Log files
-            '.yaml', '.yml',                               // YAML files
-            '.toml', '.ini', '.cfg', '.conf',             // Config files
-            '.js', '.ts', '.jsx', '.tsx',                 // Code files
-            '.py', '.java', '.cpp', '.c', '.h',           // More code files
-            '.css', '.scss', '.sass', '.less',            // Style files
-            '.sql',                                        // SQL files
-        ];
-
-        if (vscodeNativeFormats.includes(fileExtension)) {
-            return false;
-        }
-
-        // Only convert supported document formats
-        const supportedExtensions = this.configManager.getSupportedExtensions();
-        return supportedExtensions.includes(fileExtension);
-    }
-
-    /**
-     * Get the reason why a file is being skipped
-     */
-    private getSkipReason(filePath: string): string {
-        const fileExtension = path.extname(filePath).toLowerCase();
-
-        const vscodeNativeFormats = [
-            '.md', '.markdown', '.mdown', '.mkd', '.mkdn',
-            '.txt', '.text',
-            '.json', '.jsonc',
-            '.xml', '.html', '.htm',
-            '.csv', '.tsv',
-            '.log',
-            '.yaml', '.yml',
-            '.toml', '.ini', '.cfg', '.conf',
-            '.js', '.ts', '.jsx', '.tsx',
-            '.py', '.java', '.cpp', '.c', '.h',
-            '.css', '.scss', '.sass', '.less',
-            '.sql',
-        ];
-
-        if (vscodeNativeFormats.includes(fileExtension)) {
-            return 'VS Code already supports this format natively';
-        }
-
-        const supportedExtensions = this.configManager.getSupportedExtensions();
-        if (!supportedExtensions.includes(fileExtension)) {
-            return `Unsupported format (supported: ${supportedExtensions.join(', ')})`;
-        }
-
-        return 'Unknown reason';
-    }
-
-    /**
      * Enhanced image processing with actual image extraction
      */
     private async processImages(originalFilePath: string, markdownContent: string): Promise<string> {
         try {
-            const originalDir = path.dirname(originalFilePath);
-            const originalBaseName = path.parse(path.basename(originalFilePath)).name;
             const fileExtension = path.extname(originalFilePath).toLowerCase();
 
             // Check if image extraction is enabled
@@ -656,14 +607,10 @@ export class MarkitdownConverter {
             }
 
             // Try to extract images using the image extractor
-            let extractedImages: any[] = [];
             let imageExtractionResult: any = null;
 
             try {
                 imageExtractionResult = await this.extractImagesFromDocument(originalFilePath);
-                if (imageExtractionResult && imageExtractionResult.success) {
-                    extractedImages = imageExtractionResult.images || [];
-                }
             } catch (error) {
                 console.warn(`Warning: Image extraction failed for ${originalFilePath}:`, error);
                 // Continue with processing existing references
@@ -725,21 +672,12 @@ export class MarkitdownConverter {
             const minImageSize = this.configManager.getImageMinSize();
 
             // Call the intelligent image extractor with full content extraction
-            const command = `python "${imageExtractorPath}" "${filePath}" "${outputDir}" "${markdownDir}" full_content ${minImageSize}`;
-            
+            const args = [imageExtractorPath, filePath, outputDir, markdownDir, 'full_content', String(minImageSize)];
+
             // Add timeout for image extraction
             const timeout = process.platform === 'win32' ? 120000 : 180000; // 2min for Windows, 3min for others
-            
-            const { stdout, stderr } = await Promise.race([
-                execAsync(command, { maxBuffer: 50 * 1024 * 1024 }), // 50MB buffer for large files
-                new Promise<never>((_, reject) => 
-                    setTimeout(() => reject(new Error(`Image extraction timeout after ${timeout/1000}s`)), timeout)
-                )
-            ]);
 
-            if (stderr && !stdout) {
-                throw new Error(`Image extractor error: ${stderr}`);
-            }
+            const stdout = await runCommand('python', args, timeout);
 
             // Parse JSON result
             const result = JSON.parse(stdout);
@@ -811,31 +749,6 @@ export class MarkitdownConverter {
     }
 
     /**
-     * Generate markdown content for extracted images
-     */
-    private generateImageMarkdown(images: any[]): string {
-        if (!images || images.length === 0) {
-            return "";
-        }
-
-        let markdown = "\n\n## Extracted Images\n\n";
-
-        for (const img of images) {
-            let altText = "Extracted image";
-            if (img.page) {
-                altText += ` from page ${img.page}`;
-            } else if (img.slide) {
-                altText += ` from slide ${img.slide}`;
-            }
-
-            // Use relative path for markdown
-            markdown += `![${altText}](${img.relative_path})\n\n`;
-        }
-
-        return markdown;
-    }
-
-    /**
      * Split large document into multiple markdown files
      */
     private async splitAndSaveDocument(outputPath: string, markdownContent: string, originalFileName: string): Promise<void> {
@@ -843,7 +756,7 @@ export class MarkitdownConverter {
         const parts: string[] = [];
         
         // Split content by sections (headers) first, then by character count if needed
-        const sections = this.splitByHeaders(markdownContent);
+        const sections = splitByHeaders(markdownContent);
         let currentPart = '';
         
         for (const section of sections) {
@@ -881,55 +794,9 @@ export class MarkitdownConverter {
         }
         
         // Create an index file
-        const indexContent = this.createIndexFile(originalFileName, parts.length, baseName);
+        const indexContent = createIndexFile(originalFileName, parts.length, baseName);
         const indexPath = path.join(dir, `${baseName}_index.md`);
         fs.writeFileSync(indexPath, indexContent, 'utf8');
     }
     
-    /**
-     * Split content by markdown headers
-     */
-    private splitByHeaders(content: string): string[] {
-        const lines = content.split('\n');
-        const sections: string[] = [];
-        let currentSection = '';
-        
-        for (const line of lines) {
-            // Check if line is a header (starts with #)
-            if (line.trim().match(/^#{1,6}\s/)) {
-                // If we have accumulated content, save it as a section
-                if (currentSection.trim().length > 0) {
-                    sections.push(currentSection + '\n');
-                }
-                currentSection = line + '\n';
-            } else {
-                currentSection += line + '\n';
-            }
-        }
-        
-        // Add the last section
-        if (currentSection.trim().length > 0) {
-            sections.push(currentSection);
-        }
-        
-        return sections.length > 0 ? sections : [content];
-    }
-    
-    /**
-     * Create an index file for split documents
-     */
-    private createIndexFile(originalFileName: string, totalParts: number, baseName: string): string {
-        let indexContent = `# ${originalFileName} - Document Index\n\n`;
-        indexContent += `This document has been split into ${totalParts} parts for better readability and performance.\n\n`;
-        indexContent += `## Parts:\n\n`;
-        
-        for (let i = 1; i <= totalParts; i++) {
-            indexContent += `- [Part ${i}](./${baseName}_part${i}.md)\n`;
-        }
-        
-        indexContent += `\n---\n\n`;
-        indexContent += `*This index was automatically generated by DocuGenius.*`;
-        
-        return indexContent;
-    }
 }

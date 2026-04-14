@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ConfigurationManager } from './configuration';
 
 export interface ProjectConfig {
     enabled: boolean;
@@ -13,8 +12,6 @@ export interface ProjectConfig {
 
 export class ProjectManager {
     private static readonly CONFIG_FILE_NAME = '.docugenius.json';
-    private static readonly ENABLED_MARKER_FILE_NAME = '.docugenius.enabled';
-    private static readonly DISABLED_MARKER_FILE_NAME = '.docugenius.disabled';
     private static readonly DEFAULT_CONFIG: ProjectConfig = {
         enabled: false,
         autoConvert: true,
@@ -22,13 +19,15 @@ export class ProjectManager {
         supportedExtensions: ['.docx', '.xlsx', '.pptx', '.pdf'],
         lastActivated: new Date().toISOString()
     };
-    private configManager?: ConfigurationManager;
 
-    /**
-     * Set configuration manager reference
-     */
-    setConfigurationManager(configManager: ConfigurationManager): void {
-        this.configManager = configManager;
+    private shouldUseProjectConfig(): boolean {
+        const config = vscode.workspace.getConfiguration('documentConverter');
+        return config.get<boolean>('createProjectConfig', false);
+    }
+
+    private getConfiguredFolderName(): string {
+        const config = vscode.workspace.getConfiguration('documentConverter');
+        return config.get<string>('markdownSubdirectoryName', 'DocuGenius');
     }
 
     /**
@@ -42,17 +41,6 @@ export class ProjectManager {
 
         const rootPath = workspaceFolders[0].uri.fsPath;
         const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
-
-        // If project config files are disabled, fall back to marker files and legacy folder detection
-        if (!this.configManager?.shouldCreateProjectConfig()) {
-            if (this.hasProjectMarker(rootPath, false)) {
-                return false;
-            }
-            if (this.hasProjectMarker(rootPath, true)) {
-                return true;
-            }
-            return this.hasExistingOutputFolder(rootPath);
-        }
 
         if (fs.existsSync(configPath)) {
             try {
@@ -69,10 +57,25 @@ export class ProjectManager {
     }
 
     /**
+     * 获取项目级别的 autoConvert 设置（若项目未启用则返回 undefined）
+     */
+    getProjectAutoConvert(): boolean | undefined {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return undefined;
+        }
+        const config = this.loadProjectConfig(workspaceFolders[0].uri.fsPath);
+        if (config.enabled) {
+            return config.autoConvert;
+        }
+        return undefined;
+    }
+
+    /**
      * 检查项目中是否已存在输出目录（说明之前使用过）
      */
     private hasExistingOutputFolder(rootPath: string): boolean {
-        const configuredFolderName = this.configManager?.getMarkdownSubdirectoryName() || ProjectManager.DEFAULT_CONFIG.markdownSubdirectoryName;
+        const configuredFolderName = this.getConfiguredFolderName();
         const candidateFolders = new Set<string>([
             configuredFolderName,
             ProjectManager.DEFAULT_CONFIG.markdownSubdirectoryName,
@@ -87,34 +90,6 @@ export class ProjectManager {
         }
 
         return false;
-    }
-
-    private getProjectMarkerPath(rootPath: string, enabled: boolean): string {
-        return path.join(
-            rootPath,
-            enabled ? ProjectManager.ENABLED_MARKER_FILE_NAME : ProjectManager.DISABLED_MARKER_FILE_NAME
-        );
-    }
-
-    private hasProjectMarker(rootPath: string, enabled: boolean): boolean {
-        return fs.existsSync(this.getProjectMarkerPath(rootPath, enabled));
-    }
-
-    private persistProjectMarker(rootPath: string, enabled: boolean): void {
-        const enabledMarkerPath = this.getProjectMarkerPath(rootPath, true);
-        const disabledMarkerPath = this.getProjectMarkerPath(rootPath, false);
-
-        if (enabled) {
-            if (fs.existsSync(disabledMarkerPath)) {
-                fs.rmSync(disabledMarkerPath, { force: true });
-            }
-            fs.writeFileSync(enabledMarkerPath, `enabledAt=${new Date().toISOString()}\n`, 'utf8');
-        } else {
-            if (fs.existsSync(enabledMarkerPath)) {
-                fs.rmSync(enabledMarkerPath, { force: true });
-            }
-            fs.writeFileSync(disabledMarkerPath, `disabledAt=${new Date().toISOString()}\n`, 'utf8');
-        }
     }
 
     /**
@@ -161,10 +136,8 @@ export class ProjectManager {
 
         try {
             // Only create project config file if user has enabled this option
-            if (this.configManager?.shouldCreateProjectConfig()) {
+            if (this.shouldUseProjectConfig()) {
                 await this.saveProjectConfig(rootPath, projectConfig);
-            } else {
-                this.persistProjectMarker(rootPath, true);
             }
 
             if (showConvertPrompt && this.hasConvertibleFiles(rootPath)) {
@@ -207,12 +180,10 @@ export class ProjectManager {
         const rootPath = workspaceFolders[0].uri.fsPath;
 
         try {
-            if (this.configManager?.shouldCreateProjectConfig()) {
+            if (this.shouldUseProjectConfig()) {
                 const config = this.loadProjectConfig(rootPath);
                 config.enabled = false;
                 await this.saveProjectConfig(rootPath, config);
-            } else {
-                this.persistProjectMarker(rootPath, false);
             }
 
             vscode.window.showInformationMessage('DocuGenius 已在当前项目禁用');
@@ -298,7 +269,7 @@ export class ProjectManager {
                 return enabled;
             case '不启用':
                 // 只有在用户启用项目配置文件时才创建配置文件，避免重复提醒
-                if (this.configManager?.shouldCreateProjectConfig()) {
+                if (this.shouldUseProjectConfig()) {
                     await this.saveProjectConfig(
                         vscode.workspace.workspaceFolders![0].uri.fsPath,
                         { ...ProjectManager.DEFAULT_CONFIG, enabled: false }
@@ -334,28 +305,14 @@ export class ProjectManager {
 
         const rootPath = workspaceFolders[0].uri.fsPath;
         const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
-        const useProjectConfig = this.configManager?.shouldCreateProjectConfig() ?? false;
 
-        // If project config files are enabled and config file exists, don't show prompt
-        if (useProjectConfig && fs.existsSync(configPath)) {
+        // If project config file exists, don't show prompt
+        if (fs.existsSync(configPath)) {
             return false;
         }
 
-        if (!useProjectConfig) {
-            const enabledMarkerPath = this.getProjectMarkerPath(rootPath, true);
-            const disabledMarkerPath = this.getProjectMarkerPath(rootPath, false);
-
-            // 如果项目被明确标记为禁用，不再弹出提示
-            if (fs.existsSync(disabledMarkerPath)) {
-                return false;
-            }
-
-            // 如果已有启用标记或输出目录，不显示提示
-            if (fs.existsSync(enabledMarkerPath) || this.hasExistingOutputFolder(rootPath)) {
-                return false;
-            }
-        } else if (this.hasExistingOutputFolder(rootPath)) {
-            // 启用项目配置文件模式下，保留历史行为：已有输出目录则不提示
+        // 已有输出目录（说明之前使用过），不提示
+        if (this.hasExistingOutputFolder(rootPath)) {
             return false;
         }
 

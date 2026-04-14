@@ -176,13 +176,16 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "test": "mocha out/**/*.test.js",
     "package": "vsce package",
     "publish": "vsce publish"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "16.x",
     "@types/vscode": "^1.74.0",
     "@vscode/vsce": "^3.6.0",
+    "mocha": "^11.2.2",
     "typescript": "^4.9.4"
   }
 }

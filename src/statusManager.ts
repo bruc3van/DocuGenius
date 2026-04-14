@@ -6,6 +6,7 @@ export class StatusManager {
     private statusBarItem: vscode.StatusBarItem;
     private outputChannel: vscode.OutputChannel;
     private configManager: ConfigurationManager;
+    private statusBarResetTimer?: NodeJS.Timeout;
 
     constructor(configManager: ConfigurationManager) {
         this.configManager = configManager;
@@ -85,7 +86,8 @@ export class StatusManager {
         }
 
         // Reset status bar after 5 seconds (increased from 3 seconds)
-        setTimeout(() => {
+        this.clearStatusBarResetTimer();
+        this.statusBarResetTimer = setTimeout(() => {
             this.updateStatusBar(localize('status.ready'));
         }, 5000);
     }
@@ -106,7 +108,8 @@ export class StatusManager {
         );
 
         // Reset status bar after 5 seconds
-        setTimeout(() => {
+        this.clearStatusBarResetTimer();
+        this.statusBarResetTimer = setTimeout(() => {
             this.updateStatusBar(localize('status.ready'));
         }, 5000);
     }
@@ -148,7 +151,8 @@ export class StatusManager {
         }
 
         // Reset status bar after 5 seconds
-        setTimeout(() => {
+        this.clearStatusBarResetTimer();
+        this.statusBarResetTimer = setTimeout(() => {
             this.updateStatusBar(localize('status.ready'));
         }, 5000);
     }
@@ -164,7 +168,8 @@ export class StatusManager {
         );
 
         // Reset status bar after 2 seconds
-        setTimeout(() => {
+        this.clearStatusBarResetTimer();
+        this.statusBarResetTimer = setTimeout(() => {
             this.updateStatusBar(localize('status.ready'));
         }, 2000);
     }
@@ -188,7 +193,8 @@ export class StatusManager {
         }
 
         // Reset status bar after 3 seconds
-        setTimeout(() => {
+        this.clearStatusBarResetTimer();
+        this.statusBarResetTimer = setTimeout(() => {
             this.updateStatusBar(localize('status.ready'));
         }, 3000);
     }
@@ -207,7 +213,8 @@ export class StatusManager {
         );
 
         // Reset status bar after 2 seconds
-        setTimeout(() => {
+        this.clearStatusBarResetTimer();
+        this.statusBarResetTimer = setTimeout(() => {
             this.updateStatusBar(localize('status.ready'));
         }, 2000);
     }
@@ -237,9 +244,20 @@ export class StatusManager {
     }
 
     /**
+     * Clear pending status bar reset timer
+     */
+    private clearStatusBarResetTimer(): void {
+        if (this.statusBarResetTimer) {
+            clearTimeout(this.statusBarResetTimer);
+            this.statusBarResetTimer = undefined;
+        }
+    }
+
+    /**
      * Dispose resources
      */
     dispose(): void {
+        this.clearStatusBarResetTimer();
         this.statusBarItem.dispose();
         this.outputChannel.dispose();
     }

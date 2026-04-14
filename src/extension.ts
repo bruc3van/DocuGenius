@@ -21,8 +21,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Initialize configuration manager
     const configManager = new ConfigurationManager();
-    configManager.setProjectManager(projectManager);
-    projectManager.setConfigurationManager(configManager);
 
     // Initialize status manager
     statusManager = new StatusManager(configManager);
@@ -31,8 +29,17 @@ export function activate(context: vscode.ExtensionContext) {
     const converter = new MarkitdownConverter(context, configManager, statusManager);
 
     // Initialize file watcher
-    fileWatcher = new FileWatcher(converter, configManager, statusManager, projectManager);
+    fileWatcher = new FileWatcher(converter, configManager, projectManager);
     
+    // Helper to get effective auto-convert setting
+    const getEffectiveAutoConvert = (): boolean => {
+        const projectAutoConvert = projectManager!.getProjectAutoConvert();
+        if (projectAutoConvert !== undefined) {
+            return projectAutoConvert;
+        }
+        return configManager.isAutoConvertEnabled();
+    };
+
     // Check if we should show enable prompt for new projects
     if (!projectManager.isProjectEnabled()) {
         setTimeout(() => {
@@ -41,9 +48,9 @@ export function activate(context: vscode.ExtensionContext) {
                     if (enabled && statusManager && fileWatcher && projectManager) {
                         // Reinitialize file watcher when project is enabled
                         fileWatcher.dispose();
-                        fileWatcher = new FileWatcher(converter, configManager, statusManager, projectManager);
+                        fileWatcher = new FileWatcher(converter, configManager, projectManager);
                         context.subscriptions.push(fileWatcher);
-                        statusManager.showWatcherStatus(configManager.isAutoConvertEnabled(), configManager.getSupportedExtensions());
+                        statusManager.showWatcherStatus(getEffectiveAutoConvert(), configManager.getSupportedExtensions());
                     }
                 });
             }
@@ -108,9 +115,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (enabled && fileWatcher) {
             // Reinitialize file watcher when project is enabled
             fileWatcher.dispose();
-            fileWatcher = new FileWatcher(converter, configManager, statusManager, projectManager);
+            fileWatcher = new FileWatcher(converter, configManager, projectManager);
             context.subscriptions.push(fileWatcher);
-            statusManager.showWatcherStatus(configManager.isAutoConvertEnabled(), configManager.getSupportedExtensions());
+            statusManager.showWatcherStatus(getEffectiveAutoConvert(), configManager.getSupportedExtensions());
         }
     });
 
@@ -168,7 +175,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Update status
     statusManager.updateStatusBar(getStatusText('ready'));
-    const watcherEnabled = projectManager.isProjectEnabled() && configManager.isAutoConvertEnabled();
+    const watcherEnabled = projectManager.isProjectEnabled() && getEffectiveAutoConvert();
     statusManager.showWatcherStatus(watcherEnabled, configManager.getSupportedExtensions());
 }
 

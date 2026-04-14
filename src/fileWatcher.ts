@@ -2,23 +2,21 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { MarkitdownConverter } from './converter';
 import { ConfigurationManager } from './configuration';
-import { StatusManager } from './statusManager';
 import { ProjectManager } from './projectManager';
+import { COPYABLE_EXTENSIONS } from './constants';
 
 export class FileWatcher implements vscode.Disposable {
     private watchers: vscode.FileSystemWatcher[] = [];
     private configChangeDisposable?: vscode.Disposable;
     private converter: MarkitdownConverter;
     private configManager: ConfigurationManager;
-    private statusManager: StatusManager;
     private projectManager: ProjectManager;
 
 
 
-    constructor(converter: MarkitdownConverter, configManager: ConfigurationManager, statusManager: StatusManager, projectManager: ProjectManager) {
+    constructor(converter: MarkitdownConverter, configManager: ConfigurationManager, projectManager: ProjectManager) {
         this.converter = converter;
         this.configManager = configManager;
-        this.statusManager = statusManager;
         this.projectManager = projectManager;
         this.initializeWatchers();
 
@@ -53,34 +51,21 @@ export class FileWatcher implements vscode.Disposable {
 
         // Only add copyable extensions if user has enabled text file copying
         if (this.configManager.shouldCopyTextFiles()) {
-            const copyableExtensions = [
-                '.md', '.markdown', '.mdown', '.mkd', '.mkdn',  // Markdown files
-                '.txt', '.text',                                // Plain text files
-                '.json', '.jsonc',                             // JSON files
-                '.xml', '.html', '.htm',                       // Markup files
-                '.csv', '.tsv',                                // Simple data files
-                '.log',                                        // Log files
-                '.yaml', '.yml',                               // YAML files
-                '.toml', '.ini', '.cfg', '.conf',             // Config files
-                '.sql',                                        // SQL files
-            ];
-            allExtensions = [...supportedExtensions, ...copyableExtensions];
+            allExtensions = [...supportedExtensions, ...COPYABLE_EXTENSIONS];
         }
 
-        // Create a pattern that matches all supported extensions
-        const patterns = allExtensions.map(ext => `**/*${ext}`);
+        // Create a single glob pattern that matches all supported extensions
+        const extList = allExtensions.map(ext => ext.substring(1)).join(',');
+        const pattern = `**/*.{${extList}}`;
+        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
-        for (const pattern of patterns) {
-            const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+        watcher.onDidCreate(uri => this.handleFileEvent(uri, 'created'));
+        watcher.onDidChange(uri => this.handleFileEvent(uri, 'changed'));
+        watcher.onDidDelete(uri => this.handleFileEvent(uri, 'deleted'));
 
-            watcher.onDidCreate(uri => this.handleFileEvent(uri, 'created'));
-            watcher.onDidChange(uri => this.handleFileEvent(uri, 'changed'));
-            watcher.onDidDelete(uri => this.handleFileEvent(uri, 'deleted'));
+        this.watchers.push(watcher);
 
-            this.watchers.push(watcher);
-        }
-
-        console.log(`File watchers initialized for ${patterns.length} patterns`);
+        console.log(`File watcher initialized for pattern: ${pattern}`);
     }
 
 
@@ -218,18 +203,7 @@ export class FileWatcher implements vscode.Disposable {
 
         // Only process copyable files if user has enabled text file copying
         if (this.configManager.shouldCopyTextFiles()) {
-            const copyableExtensions = [
-                '.md', '.markdown', '.mdown', '.mkd', '.mkdn',  // Markdown files
-                '.txt', '.text',                                // Plain text files
-                '.json', '.jsonc',                             // JSON files
-                '.xml', '.html', '.htm',                       // Markup files
-                '.csv', '.tsv',                                // Simple data files
-                '.log',                                        // Log files
-                '.yaml', '.yml',                               // YAML files
-                '.toml', '.ini', '.cfg', '.conf',             // Config files
-                '.sql',                                        // SQL files
-            ];
-            return copyableExtensions.includes(fileExtension);
+            return COPYABLE_EXTENSIONS.includes(fileExtension);
         }
 
         return false;

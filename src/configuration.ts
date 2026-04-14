@@ -1,30 +1,12 @@
 import * as vscode from 'vscode';
-import { ProjectManager } from './projectManager';
 
 export class ConfigurationManager {
     private static readonly SECTION = 'documentConverter';
-    private projectManager?: ProjectManager;
-
-    /**
-     * Set project manager reference
-     */
-    setProjectManager(projectManager: ProjectManager): void {
-        this.projectManager = projectManager;
-    }
 
     /**
      * Check if auto-conversion is enabled
      */
     isAutoConvertEnabled(): boolean {
-        // First check project-level config if available
-        if (this.projectManager) {
-            const projectConfig = this.projectManager.loadProjectConfig();
-            if (projectConfig.enabled) {
-                return projectConfig.autoConvert;
-            }
-        }
-        
-        // Fall back to global config
         const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
         return config.get<boolean>('autoConvert', true);
     }
