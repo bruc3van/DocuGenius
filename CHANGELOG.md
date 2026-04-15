@@ -68,7 +68,7 @@
 
 - **Windows配置修复**: 修复了图像提取配置在Windows系统上不生效的bug
 - **macOS二进制优化**: Mac二进制文件从37.7MB减少到30.3MB (减少20%)
-- **Rosetta 2支持**: 为Intel Mac用户添加了详细的Rosetta 2安装和使用说明
+- **Rosetta 2兼容说明**: 补充了 Apple Silicon 设备在运行 Intel-only macOS 构建时的兼容说明
 - **跨平台统一**: Mac和Windows版本现在使用相同的pdfplumber库处理PDF
 
 #### 文档和兼容性增强
@@ -444,7 +444,7 @@ DocuGenius/
 - **Windows用户**: 图像提取功能现在可以正常工作，无需额外配置
 - **macOS用户**: 获得更小的二进制文件和更好的跨架构兼容性
 - **所有用户**: 享受更统一的跨平台体验和改进的错误处理
-- **Intel Mac用户**: 请确保已安装Rosetta 2以获得最佳性能
+- **macOS用户**: 发布包现已统一支持 Intel 与 Apple Silicon，无需额外安装 Rosetta 2
 
 ### 从2.3.0升级到2.3.1
 
@@ -456,9 +456,8 @@ DocuGenius/
 
 - **Windows**: Windows 10或更高版本，Python 3.6+
 - **macOS**: macOS 11.0 (Big Sur) 或更高版本
-  - **Apple Silicon Mac**: 原生 ARM64 支持，最佳性能
-  - **Intel Mac**: 需要 Rosetta 2（首次运行时自动安装）
-    - 手动安装：`/usr/sbin/softwareupdate --install-rosetta`
+  - **正式发布包**: 内置通用 macOS 二进制，同时支持 Intel 与 Apple Silicon
+  - **Rosetta 2**: 正常使用正式发布包时无需额外安装；仅在 Apple Silicon 本地运行 Intel-only 自行构建产物时才可能需要
 - **推荐依赖**: PyMuPDF, python-docx, python-pptx, openpyxl
 
 ### 安装建议
