@@ -13,7 +13,7 @@ import { pathContainsDirectorySegment } from './pathUtils';
 interface ConverterCommand {
     command: string;
     args: string[];
-    usesPythonConverter: boolean;
+    supportsConversionOptions: boolean;
     description: string;
     env?: NodeJS.ProcessEnv;
 }
@@ -367,8 +367,9 @@ export class MarkitdownConverter {
                 try {
                     let args = [...converterCommand.args];
 
-                    if (converterCommand.usesPythonConverter) {
-                        // Pass extract images configuration to Python converter
+                    if (converterCommand.supportsConversionOptions) {
+                        // Both the Windows script path and the packaged macOS binary
+                        // delegate to converter.py and support the same argument contract.
                         const extractImages = this.configManager.shouldExtractImages();
                         const outputPath = this.getOutputPath(filePath);
                         const imageOutputFolder = this.configManager.getImageOutputFolder();
@@ -385,9 +386,9 @@ export class MarkitdownConverter {
                     // Process the markdown content to handle images if needed
                     let markdownContent = stdout;
 
-                    if (this.configManager.shouldExtractImages() && !converterCommand.usesPythonConverter) {
+                    if (this.configManager.shouldExtractImages() && !converterCommand.supportsConversionOptions) {
                         // Only do additional image processing if we didn't use Python converter
-                        // Python converter already includes intelligent image extraction
+                        // Integrated converters already include image extraction.
                         markdownContent = await this.processImages(filePath, markdownContent);
                     }
 
@@ -544,7 +545,7 @@ export class MarkitdownConverter {
                 commands.push({
                     command: runtime.pythonPath,
                     args: [embeddedConverterPath],
-                    usesPythonConverter: true,
+                    supportsConversionOptions: true,
                     description: `${runtime.pythonPath} ${embeddedConverterPath}`,
                     env: {
                         DOCUGENIUS_AUTO_INSTALL_DEPS: '0'
@@ -562,7 +563,7 @@ export class MarkitdownConverter {
             commands.push({
                 command: embeddedBinaryPath,
                 args: [],
-                usesPythonConverter: false,
+                supportsConversionOptions: true,
                 description: embeddedBinaryPath
             });
         }

@@ -170,7 +170,7 @@ set PYTHONUTF8=1
 
 if "%~1"=="" (
     echo DocuGenius CLI - Document to Markdown Converter with Image Extraction
-    echo Usage: docugenius-cli ^<file^> [extract_images] [output_path]
+    echo Usage: docugenius-cli ^<file^> [extract_images] [output_path] [image_output_folder]
     echo.
     echo Supported formats:
     echo   - Text files: .txt, .md, .markdown
@@ -202,7 +202,7 @@ if not exist "%CONVERTER%" (
     exit /b 1
 )
 
-python "%CONVERTER%" "%~1" "%~2" "%~3"
+python "%CONVERTER%" "%~1" "%~2" "%~3" "%~4"
 exit /b %ERRORLEVEL%
 '''
 
