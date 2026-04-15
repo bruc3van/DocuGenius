@@ -6,6 +6,7 @@ import { ConfigurationManager } from './configuration';
 import { ProjectManager } from './projectManager';
 import { COPYABLE_EXTENSIONS } from './constants';
 import { pathContainsDirectorySegment } from './pathUtils';
+import { localize } from './i18n';
 
 type FileEventType = 'created' | 'changed' | 'deleted';
 
@@ -152,7 +153,7 @@ export class FileWatcher implements vscode.Disposable {
 
         } catch (error) {
             console.error(`Error handling file event for ${uri.fsPath}:`, error);
-            vscode.window.showErrorMessage(`Failed to process file: ${path.basename(uri.fsPath)}`);
+            vscode.window.showErrorMessage(localize('fileWatcher.error.processFileFailed', path.basename(uri.fsPath)));
         }
     }
 
@@ -170,26 +171,29 @@ export class FileWatcher implements vscode.Disposable {
         }
 
         // Ask for confirmation for document conversion
+        const convertNowLabel = localize('fileWatcher.action.convertNow');
+        const skipLabel = localize('fileWatcher.action.skip');
+        const disableAutoConvertLabel = localize('fileWatcher.action.disableAutoConvert');
         const choice = await vscode.window.showInformationMessage(
-            `Detected new file: ${fileName}`,
+            localize('fileWatcher.prompt.singleTitle', fileName),
             {
                 modal: true,
-                detail: 'Convert this document to Markdown?'
+                detail: localize('fileWatcher.prompt.singleDetail')
             },
-            'Convert Now',
-            'Skip',
-            'Disable Auto-Convert'
+            convertNowLabel,
+            skipLabel,
+            disableAutoConvertLabel
         );
 
         switch (choice) {
-            case 'Convert Now':
+            case convertNowLabel:
                 return true;
-            case 'Disable Auto-Convert':
+            case disableAutoConvertLabel:
                 // Disable auto-convert for current workspace only
                 await this.configManager.updateConfiguration('autoConvert', false, vscode.ConfigurationTarget.Workspace);
-                vscode.window.showInformationMessage('Auto-convert has been disabled for this workspace. You can re-enable it in settings anytime.');
+                vscode.window.showInformationMessage(localize('fileWatcher.info.autoConvertDisabled'));
                 return false;
-            case 'Skip':
+            case skipLabel:
             default:
                 return false;
         }
@@ -201,25 +205,33 @@ export class FileWatcher implements vscode.Disposable {
             return true;
         }
 
+        const convertAllLabel = localize('fileWatcher.action.convertAll');
+        const skipAllLabel = localize('fileWatcher.action.skipAll');
+        const disableAutoConvertLabel = localize('fileWatcher.action.disableAutoConvert');
         const choice = await vscode.window.showInformationMessage(
-            `Detected ${files.length} new files`,
+            localize('fileWatcher.prompt.batchTitle', files.length),
             {
                 modal: true,
-                detail: `Convert ${documentCount} document${documentCount === 1 ? '' : 's'} in this batch to Markdown?`
+                detail: localize(
+                    documentCount === 1
+                        ? 'fileWatcher.prompt.batchDetailSingle'
+                        : 'fileWatcher.prompt.batchDetailPlural',
+                    documentCount
+                )
             },
-            'Convert All',
-            'Skip All',
-            'Disable Auto-Convert'
+            convertAllLabel,
+            skipAllLabel,
+            disableAutoConvertLabel
         );
 
         switch (choice) {
-            case 'Convert All':
+            case convertAllLabel:
                 return true;
-            case 'Disable Auto-Convert':
+            case disableAutoConvertLabel:
                 await this.configManager.updateConfiguration('autoConvert', false, vscode.ConfigurationTarget.Workspace);
-                vscode.window.showInformationMessage('Auto-convert has been disabled for this workspace. You can re-enable it in settings anytime.');
+                vscode.window.showInformationMessage(localize('fileWatcher.info.autoConvertDisabled'));
                 return false;
-            case 'Skip All':
+            case skipAllLabel:
             default:
                 return false;
         }

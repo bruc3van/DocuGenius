@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -17,44 +16,70 @@ export class I18nManager {
 
     public static getInstance(extensionPath?: string): I18nManager {
         if (!I18nManager.instance) {
-            if (!extensionPath) {
-                throw new Error('Extension path is required for first initialization');
-            }
-            I18nManager.instance = new I18nManager(extensionPath);
+            const resolvedExtensionPath = extensionPath || path.resolve(__dirname, '..');
+            I18nManager.instance = new I18nManager(resolvedExtensionPath);
         }
         return I18nManager.instance;
     }
 
     private loadLocalizedStrings(): void {
-        // Get VSCode's current locale
-        this.currentLocale = vscode.env.language || 'en';
-        
-        // Try to load locale-specific strings first
-        let localeFile = path.join(this.extensionPath, `package.nls.${this.currentLocale}.json`);
-        
-        // If locale-specific file doesn't exist, try fallback locales
-        if (!fs.existsSync(localeFile)) {
-            // Try language without region (e.g., 'zh' instead of 'zh-cn')
-            const languageOnly = this.currentLocale.split('-')[0];
-            if (languageOnly !== this.currentLocale) {
-                localeFile = path.join(this.extensionPath, `package.nls.${languageOnly}.json`);
-            }
-            
-            // If still not found, use default English
-            if (!fs.existsSync(localeFile)) {
-                localeFile = path.join(this.extensionPath, 'package.nls.json');
-            }
-        }
+        this.currentLocale = (this.getVscodeLanguage() || 'en').toLowerCase();
 
         try {
-            if (fs.existsSync(localeFile)) {
-                const content = fs.readFileSync(localeFile, 'utf8');
-                this.localizedStrings = JSON.parse(content);
+            const defaultStrings = this.readLocaleFile(path.join(this.extensionPath, 'package.nls.json'));
+            this.localizedStrings = { ...defaultStrings };
+
+            for (const locale of this.getLocaleCandidates(this.currentLocale)) {
+                if (locale === 'en') {
+                    continue;
+                }
+
+                const localeFile = path.join(this.extensionPath, `package.nls.${locale}.json`);
+                if (!fs.existsSync(localeFile)) {
+                    continue;
+                }
+
+                this.localizedStrings = {
+                    ...this.localizedStrings,
+                    ...this.readLocaleFile(localeFile)
+                };
+                break;
             }
         } catch (error) {
             console.error('Failed to load localized strings:', error);
             // Fallback to empty object, will use keys as values
             this.localizedStrings = {};
+        }
+    }
+
+    private getLocaleCandidates(locale: string): string[] {
+        const normalized = locale.toLowerCase();
+        const candidates: string[] = [normalized];
+
+        if (normalized.startsWith('zh')) {
+            candidates.push('zh-cn', 'zh');
+        } else {
+            const languageOnly = normalized.split('-')[0];
+            if (languageOnly !== normalized) {
+                candidates.push(languageOnly);
+            }
+        }
+
+        candidates.push('en');
+        return [...new Set(candidates)];
+    }
+
+    private readLocaleFile(filePath: string): LocalizedStrings {
+        const content = fs.readFileSync(filePath, 'utf8');
+        return JSON.parse(content) as LocalizedStrings;
+    }
+
+    private getVscodeLanguage(): string | undefined {
+        try {
+            const vscodeModule = require('vscode') as { env?: { language?: string } };
+            return vscodeModule.env?.language;
+        } catch {
+            return undefined;
         }
     }
 

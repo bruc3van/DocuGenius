@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { localize } from './i18n';
 
 export interface ProjectConfig {
     enabled: boolean;
@@ -122,7 +123,7 @@ export class ProjectManager {
     async enableForProject(config?: Partial<ProjectConfig>, showConvertPrompt: boolean = false): Promise<boolean> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
-            vscode.window.showErrorMessage('No workspace folder is open');
+            vscode.window.showErrorMessage(localize('project.error.noWorkspaceFolder'));
             return false;
         }
 
@@ -141,29 +142,30 @@ export class ProjectManager {
             }
 
             if (showConvertPrompt && this.hasConvertibleFiles(rootPath)) {
+                const convertNowLabel = localize('project.action.convertNow');
                 const choice = await vscode.window.showInformationMessage(
-                    `DocuGenius 已启用！检测到项目中有可转换的文档文件，是否立即转换？`,
-                    '立即转换',
-                    '稍后手动转换'
+                    localize('project.prompt.convertDetected'),
+                    convertNowLabel,
+                    localize('project.action.convertLater')
                 );
 
-                if (choice === '立即转换') {
+                if (choice === convertNowLabel) {
                     // 触发文件夹转换命令
-                    vscode.commands.executeCommand('documentConverter.convertFolder', vscode.Uri.file(rootPath));
+                    await vscode.commands.executeCommand('documentConverter.convertFolder', vscode.Uri.file(rootPath));
                 }
             } else if (!showConvertPrompt) {
                 // 当 showConvertPrompt 为 false 时，不显示任何消息，由调用方处理
                 // 这避免了重复的消息提示
             } else {
                 vscode.window.showInformationMessage(
-                    `✅ DocuGenius 已在当前项目启用！您可以右键文件进行转换，或在设置中开启自动转换。`
+                    localize('project.info.enabledReady')
                 );
             }
             
             return true;
         } catch (error) {
             console.error('Error enabling project:', error);
-            vscode.window.showErrorMessage('Failed to enable DocuGenius for this project');
+            vscode.window.showErrorMessage(localize('project.error.enableFailed'));
             return false;
         }
     }
@@ -186,11 +188,11 @@ export class ProjectManager {
                 await this.saveProjectConfig(rootPath, config);
             }
 
-            vscode.window.showInformationMessage('DocuGenius 已在当前项目禁用');
+            vscode.window.showInformationMessage(localize('project.info.disabled'));
             return true;
         } catch (error) {
             console.error('Error disabling project:', error);
-            vscode.window.showErrorMessage('Failed to disable DocuGenius for this project');
+            vscode.window.showErrorMessage(localize('project.error.disableFailed'));
             return false;
         }
     }
@@ -237,37 +239,41 @@ export class ProjectManager {
      * 显示项目启用确认对话框
      */
     async showEnableDialog(): Promise<boolean> {
+        const enableLabel = localize('project.action.enable');
+        const disableLabel = localize('project.action.notEnable');
+        const remindLaterLabel = localize('project.action.remindLater');
+
         const choice = await vscode.window.showInformationMessage(
-            '是否要为此项目启用 DocuGenius ？',
+            localize('project.prompt.enableTitle'),
             {
                 modal: true,
-                detail: '启用后，您可以手动转换文档或在设置中开启自动转换功能。\n\n转换后的文件将存储在 "DocuGenius" 文件夹中。'
+                detail: localize('project.prompt.enableDetail')
             },
-            '启用',
-            '不启用',
-            '稍后提醒'
+            enableLabel,
+            disableLabel,
+            remindLaterLabel
         );
 
         switch (choice) {
-            case '启用':
+            case enableLabel:
                 // 用户已经在第一个弹窗中表达了启用意图，直接启用并自动转换，无需再次询问
                 const enabled = await this.enableForProject(undefined, false);
                 if (enabled) {
                     const workspaceFolders = vscode.workspace.workspaceFolders;
                     if (workspaceFolders && this.hasConvertibleFiles(workspaceFolders[0].uri.fsPath)) {
                         // 直接执行转换，不再询问
-                        vscode.commands.executeCommand('documentConverter.convertFolder', workspaceFolders[0].uri);
+                        await vscode.commands.executeCommand('documentConverter.convertFolder', workspaceFolders[0].uri);
                         vscode.window.showInformationMessage(
-                            `已开始转换文档！将自动保存到 "DocuGenius" 文件夹中。`
+                            localize('project.info.conversionStarted')
                         );
                     } else {
                         vscode.window.showInformationMessage(
-                            `DocuGenius 已启用！可以右键文件进行转换，或在设置中开启自动转换。`
+                            localize('project.info.enabledReady')
                         );
                     }
                 }
                 return enabled;
-            case '不启用':
+            case disableLabel:
                 // 只有在用户启用项目配置文件时才创建配置文件，避免重复提醒
                 if (this.shouldUseProjectConfig()) {
                     await this.saveProjectConfig(
@@ -276,7 +282,7 @@ export class ProjectManager {
                     );
                 }
                 return false;
-            case '稍后提醒':
+            case remindLaterLabel:
             default:
                 return false;
         }

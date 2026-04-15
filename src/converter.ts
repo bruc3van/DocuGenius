@@ -37,16 +37,16 @@ function runCommand(command: string, args: string[], timeout: number, env?: Node
 
         const timer = setTimeout(() => {
             child.kill();
-            reject(new Error(`Command timeout after ${timeout / 1000}s`));
+            reject(new Error(localize('common.commandTimeout', timeout / 1000)));
         }, timeout);
 
         child.on('close', (code) => {
             clearTimeout(timer);
             if (code !== 0) {
                 const failureOutput = stderr.trim() || stdout.trim();
-                reject(new Error(failureOutput || `Command exited with code ${code}`));
+                reject(new Error(failureOutput || localize('common.commandExitCode', code)));
             } else if (stderr && !stdout) {
-                reject(new Error(`Command error: ${stderr}`));
+                reject(new Error(localize('common.commandError', stderr.trim())));
             } else {
                 resolve(stdout);
             }
@@ -126,7 +126,7 @@ export class MarkitdownConverter {
         try {
             // Check if file exists
             if (!fs.existsSync(filePath)) {
-                throw new Error(`File not found: ${filePath}`);
+                throw new Error(localize('common.fileNotFound', filePath));
             }
 
             // Check if conversion is needed (file modification time) - skip if forced
@@ -139,7 +139,7 @@ export class MarkitdownConverter {
             const runtime = await this.runtimeManager.ensureReadyForConversion(trigger);
             if (!runtime.ready) {
                 const fileName = path.basename(filePath);
-                const errorMessage = runtime.error || 'Conversion runtime is not available.';
+                const errorMessage = runtime.error || localize('converter.error.runtimeUnavailable');
                 this.statusManager.showConversionError(fileName, errorMessage);
                 return {
                     success: false,
@@ -154,11 +154,11 @@ export class MarkitdownConverter {
 
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: `Converting ${fileName} ...`,
+                title: localize('converter.progress.singleTitle', fileName),
                 cancellable: false
             }, async (progress) => {
                 // Use message-only updates so the indicator shows continuous motion
-                progress.report({ message: 'Preparing...' });
+                progress.report({ message: localize('converter.progress.preparing') });
 
                 try {
                     // Convert using built-in conversion engine
@@ -167,13 +167,13 @@ export class MarkitdownConverter {
                     const hasContent = markdownContent.replace(/\s+/g, '').length > 0;
                     if (!hasContent) {
                         conversionAborted = true;
-                        abortMessage = `无法从 ${fileName} 中提取内容。该文件可能主要由图片组成或使用了暂不支持的格式，建议先转换为 Word 等可编辑格式后再尝试。`;
+                        abortMessage = localize('converter.warning.noContent', fileName);
                         this.statusManager.showConversionError(fileName, abortMessage);
                         vscode.window.showWarningMessage(abortMessage);
                         return;
                     }
 
-                    progress.report({ message: 'Generating...' });
+                    progress.report({ message: localize('converter.progress.generating') });
 
                     // Check if document splitting is needed
                     if (this.configManager.isDocumentSplittingEnabled() && 
@@ -185,21 +185,23 @@ export class MarkitdownConverter {
                         fs.writeFileSync(outputPath, markdownContent, 'utf8');
                     }
 
-                    progress.report({ message: 'Finishing...' });
+                    progress.report({ message: localize('converter.progress.finishing') });
 
                     // Show success message with action buttons (if enabled and not in batch mode)
                     if (this.configManager.shouldShowSuccessNotifications() && !this.isBatchMode) {
+                        const openFileLabel = localize('notification.openFile');
+                        const openFolderLabel = localize('notification.openFolder');
                         vscode.window.showInformationMessage(
-                            `Successfully converted ${fileName}`,
-                            'Open File',
-                            'Open Folder'
+                            localize('notification.conversionSuccess', fileName),
+                            openFileLabel,
+                            openFolderLabel
                         ).then(selection => {
-                            if (selection === 'Open File') {
+                            if (selection === openFileLabel) {
                                 // Open the converted file
                                 vscode.workspace.openTextDocument(outputPath).then(doc => {
                                     vscode.window.showTextDocument(doc);
                                 });
-                            } else if (selection === 'Open Folder') {
+                            } else if (selection === openFolderLabel) {
                                 // Open the containing folder in VS Code
                                 const folderUri = vscode.Uri.file(path.dirname(outputPath));
                                 vscode.commands.executeCommand('vscode.openFolder', folderUri, { forceNewWindow: false });
@@ -211,10 +213,10 @@ export class MarkitdownConverter {
                     console.error(`Error converting ${filePath}:`, error);
                     this.statusManager.showConversionError(
                         fileName,
-                        error instanceof Error ? error.message : 'Unknown error'
+                        this.getErrorMessage(error)
                     );
                     vscode.window.showErrorMessage(
-                        `Failed to convert ${fileName}: ${error instanceof Error ? error.message : 'Unknown error'}`
+                        localize('converter.error.failedSingle', fileName, this.getErrorMessage(error))
                     );
                     throw error;
                 }
@@ -223,7 +225,7 @@ export class MarkitdownConverter {
             if (conversionAborted) {
                 return {
                     success: false,
-                    error: abortMessage || 'No content could be extracted from the document.'
+                    error: abortMessage || localize('converter.error.noContentExtracted')
                 };
             }
 
@@ -233,7 +235,7 @@ export class MarkitdownConverter {
             console.error(`Error converting file ${filePath}:`, error);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : 'Unknown error'
+                error: this.getErrorMessage(error)
             };
         }
     }
@@ -252,7 +254,7 @@ export class MarkitdownConverter {
             const files = this.findSupportedFiles(folderPath, allExtensions);
 
             if (files.length === 0) {
-                vscode.window.showInformationMessage('No processable files found in the selected folder.');
+                vscode.window.showInformationMessage(localize('converter.info.noProcessableFiles'));
                 return [];
             }
 
@@ -266,7 +268,7 @@ export class MarkitdownConverter {
             
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: `Converting ${files.length} files...`,
+                title: localize('converter.progress.batchTitle', files.length),
                 cancellable: false
             }, async (progress) => {
                 const increment = 100 / files.length;
@@ -274,7 +276,7 @@ export class MarkitdownConverter {
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     progress.report({
-                        message: `Processing ${path.basename(file)}...`
+                        message: localize('converter.progress.batchMessage', path.basename(file))
                     });
 
                     const fileExtension = path.extname(file).toLowerCase();
@@ -283,7 +285,7 @@ export class MarkitdownConverter {
                     const result = isConvertible && !runtime.ready
                         ? {
                             success: false,
-                            error: runtime.error || 'Conversion runtime is not available.'
+                            error: runtime.error || localize('converter.error.runtimeUnavailable')
                         }
                         : await this.processFile(file, false, true, 'batch');
                     results.push(result);
@@ -296,11 +298,12 @@ export class MarkitdownConverter {
             
             if (failureCount === 0) {
                 if (this.configManager.shouldShowSuccessNotifications()) {
+                    const openOutputFolderLabel = localize('converter.action.openOutputFolder');
                     vscode.window.showInformationMessage(
-                        `Successfully processed ${successCount} files!`,
-                        'Open Output Folder'
+                        localize('converter.success.batchComplete', successCount),
+                        openOutputFolderLabel
                     ).then(selection => {
-                        if (selection === 'Open Output Folder') {
+                        if (selection === openOutputFolderLabel) {
                             // Open the kb folder
                             const kbFolder = path.join(folderPath, this.configManager.getMarkdownSubdirectoryName());
                             if (fs.existsSync(kbFolder)) {
@@ -311,11 +314,12 @@ export class MarkitdownConverter {
                 }
             } else {
                 // Always show warnings, even if success notifications are disabled
+                const openOutputFolderLabel = localize('converter.action.openOutputFolder');
                 vscode.window.showWarningMessage(
-                    `Processed ${successCount} files successfully, ${failureCount} failed.`,
-                    'Open Output Folder'
+                    localize('converter.warning.batchPartial', successCount, failureCount),
+                    openOutputFolderLabel
                 ).then(selection => {
-                    if (selection === 'Open Output Folder') {
+                    if (selection === openOutputFolderLabel) {
                         const kbFolder = path.join(folderPath, this.configManager.getMarkdownSubdirectoryName());
                         if (fs.existsSync(kbFolder)) {
                             vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(kbFolder));
@@ -328,7 +332,7 @@ export class MarkitdownConverter {
 
         } catch (error) {
             console.error(`Error converting folder ${folderPath}:`, error);
-            vscode.window.showErrorMessage(`Failed to convert folder: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            vscode.window.showErrorMessage(localize('converter.error.failedFolder', this.getErrorMessage(error)));
             return [];
         }
     }
@@ -402,23 +406,17 @@ export class MarkitdownConverter {
 
             if (hasBuiltInConverter) {
                 const troubleshooting = process.platform === 'win32'
-                    ? `Windows built-in Python converter failed to execute. This is usually caused by:\n\n` +
-                      `1. Python is not installed or not in PATH\n` +
-                      `2. Required Python packages could not be installed\n` +
-                      `3. File path or permission issues\n\n`
-                    : `Embedded converter binary failed to execute. This might be due to:\n\n` +
-                      `1. Missing system libraries\n` +
-                      `2. Architecture mismatch\n` +
-                      `3. Permission issues\n\n`;
+                    ? localize('converter.error.builtinWindows')
+                    : localize('converter.error.builtinEmbedded');
 
                 throw new Error(
                     troubleshooting +
-                    `Last error: ${lastError?.message || 'Unknown error'}`
+                    localize('converter.error.lastError', lastError?.message || localize('common.unknownError'))
                 );
             } else {
                 throw new Error(
-                    `Built-in converter is not available. Please check the extension installation.\n\n` +
-                    `Last error: ${lastError?.message || 'Unknown error'}`
+                    localize('converter.error.builtinUnavailable') +
+                    localize('converter.error.lastError', lastError?.message || localize('common.unknownError'))
                 );
             }
 
@@ -578,7 +576,7 @@ export class MarkitdownConverter {
         try {
             // Check if file exists
             if (!fs.existsSync(filePath)) {
-                throw new Error(`File not found: ${filePath}`);
+                throw new Error(localize('common.fileNotFound', filePath));
             }
 
             const outputPath = this.getOutputPath(filePath);
@@ -599,17 +597,17 @@ export class MarkitdownConverter {
 
             // Show success message (suppress notification in batch mode)
             this.statusManager.showConversionSuccess(filePath, outputPath, this.isBatchMode);
-            this.statusManager.log(`✓ Copied: ${fileName} → ${path.basename(outputPath)}`);
+            this.statusManager.log(localize('converter.log.copySuccess', fileName, path.basename(outputPath)));
 
             return { success: true, outputPath };
 
         } catch (error) {
             console.error(`Error copying file ${filePath}:`, error);
             const fileName = path.basename(filePath);
-            this.statusManager.showConversionError(fileName, error instanceof Error ? error.message : 'Unknown error');
+            this.statusManager.showConversionError(fileName, this.getErrorMessage(error));
             return {
                 success: false,
-                error: error instanceof Error ? error.message : 'Unknown error'
+                error: this.getErrorMessage(error)
             };
         }
     }
@@ -629,7 +627,7 @@ export class MarkitdownConverter {
             if (fs.existsSync(outputPath)) {
                 fs.unlinkSync(outputPath);
                 console.log(`Deleted corresponding markdown file: ${outputPath}`);
-                this.statusManager.log(`🗑️ Deleted: ${path.basename(outputPath)} (source file ${fileName} was deleted)`);
+                this.statusManager.log(localize('converter.log.deletedOutput', path.basename(outputPath), fileName));
             }
 
             // Delete images folder if it exists (consistent with Python image extractor)
@@ -648,7 +646,7 @@ export class MarkitdownConverter {
             if (fs.existsSync(imagesDir)) {
                 fs.rmSync(imagesDir, { recursive: true, force: true });
                 console.log(`Deleted images folder: ${imagesDir}`);
-                this.statusManager.log(`🗑️ Deleted images: images/${originalBaseName}/`);
+                this.statusManager.log(localize('converter.log.deletedImages', originalBaseName));
             }
 
             // Also clean up legacy assets folder if it exists
@@ -664,11 +662,14 @@ export class MarkitdownConverter {
             if (fs.existsSync(legacyAssetsDir)) {
                 fs.rmSync(legacyAssetsDir, { recursive: true, force: true });
                 console.log(`Deleted legacy assets folder: ${legacyAssetsDir}`);
-                this.statusManager.log(`🗑️ Deleted legacy assets: ${originalBaseName}_assets/`);
+                this.statusManager.log(localize('converter.log.deletedLegacyAssets', originalBaseName));
             }
 
             // Show status update
-            this.statusManager.updateStatusBar(`🗑️ Cleaned up ${fileName}`, `Deleted markdown file and assets for ${fileName}`);
+            this.statusManager.updateStatusBar(
+                localize('converter.status.cleanup', fileName),
+                localize('converter.tooltip.cleanup', fileName)
+            );
 
             // Reset status bar after 3 seconds
             setTimeout(() => {
@@ -677,7 +678,7 @@ export class MarkitdownConverter {
 
         } catch (error) {
             console.error(`Error handling file deletion for ${filePath}:`, error);
-            this.statusManager.log(`Error cleaning up deleted file ${path.basename(filePath)}: ${error}`);
+            this.statusManager.log(localize('converter.log.cleanupFailed', path.basename(filePath), this.getErrorMessage(error)), true);
         }
     }
 
@@ -883,7 +884,7 @@ export class MarkitdownConverter {
             const partPath = path.join(dir, partFileName);
             
             // Add header to each part indicating it's part of a larger document
-            const partContent = `# ${originalFileName} - Part ${i + 1} of ${parts.length}\n\n${parts[i]}`;
+            const partContent = `# ${localize('split.part.header', originalFileName, i + 1, parts.length)}\n\n${parts[i]}`;
             fs.writeFileSync(partPath, partContent, 'utf8');
         }
         
@@ -891,6 +892,10 @@ export class MarkitdownConverter {
         const indexContent = createIndexFile(originalFileName, parts.length, baseName);
         const indexPath = path.join(dir, `${baseName}_index.md`);
         fs.writeFileSync(indexPath, indexContent, 'utf8');
+    }
+
+    private getErrorMessage(error: unknown): string {
+        return error instanceof Error ? error.message : localize('common.unknownError');
     }
     
 }
