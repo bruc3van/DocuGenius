@@ -1,5 +1,13 @@
 # DocuGenius 更新日志
 
+## [2.5.5] - 2026-04-15
+
+### 主要更新
+
+- 修复 macOS（Intel / Apple Silicon）启用图片提取时未复用已打包转换器的问题，改为直接向发布包内置的 `docugenius-cli` 传递图片提取参数，不再额外依赖外部 Python 链路
+- 保持 Windows 继续使用脚本 + 托管运行时方案，同时补齐仓库内 `docugenius-cli.bat` 与 `converter.py` 的参数签名，避免 CLI 包装脚本与扩展主路径继续漂移
+- 统一 README 与 CHANGELOG 中的 macOS 架构说明，明确正式发布包内置通用 macOS 二进制，Intel 与 Apple Silicon 都无需额外安装 Rosetta 2
+
 ## [2.5.4] - 2026-04-15
 
 ### 主要更新
