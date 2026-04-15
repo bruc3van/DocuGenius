@@ -17,7 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
     I18nManager.getInstance(context.extensionPath);
 
     // Initialize project manager
-    projectManager = new ProjectManager();
+    projectManager = new ProjectManager(context);
 
     // Initialize configuration manager
     const configManager = new ConfigurationManager();

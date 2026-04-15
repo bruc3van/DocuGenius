@@ -1,47 +1,136 @@
 import * as vscode from 'vscode';
 import { SUPPORTED_CONVERT_EXTENSIONS } from './constants';
 
+export type BatchConversionBehavior = 'askForEach' | 'askOnce' | 'convertAll' | 'skipAll';
+
+type ConfigKey =
+    | 'autoConvert'
+    | 'overwriteExisting'
+    | 'organizeInSubdirectory'
+    | 'markdownSubdirectoryName'
+    | 'extractImages'
+    | 'imageOutputFolder'
+    | 'imageMinSize'
+    | 'enableDocumentSplitting'
+    | 'documentSplittingThreshold'
+    | 'batchConversionBehavior'
+    | 'showSuccessNotifications'
+    | 'copyTextFiles'
+    | 'createProjectConfig'
+    | 'batchDetectionWindow';
+
+interface ConfigDefaults {
+    autoConvert: boolean;
+    overwriteExisting: boolean;
+    organizeInSubdirectory: boolean;
+    markdownSubdirectoryName: string;
+    extractImages: boolean;
+    imageOutputFolder: string;
+    imageMinSize: number;
+    enableDocumentSplitting: boolean;
+    documentSplittingThreshold: number;
+    batchConversionBehavior: BatchConversionBehavior;
+    showSuccessNotifications: boolean;
+    copyTextFiles: boolean;
+    createProjectConfig: boolean;
+    batchDetectionWindow: number;
+}
+
+export interface ExtensionConfiguration {
+    autoConvert: boolean;
+    overwriteExisting: boolean;
+    organizeInSubdirectory: boolean;
+    markdownSubdirectoryName: string;
+    extractImages: boolean;
+    imageOutputFolder: string;
+    imageMinSize: number;
+    enableDocumentSplitting: boolean;
+    documentSplittingThreshold: number;
+    batchConversionBehavior: BatchConversionBehavior;
+    showSuccessNotifications: boolean;
+    copyTextFiles: boolean;
+    createProjectConfig: boolean;
+    batchDetectionWindow: number;
+    supportedExtensions: string[];
+}
+
 export class ConfigurationManager {
     private static readonly SECTION = 'documentConverter';
+    private static readonly DEFAULTS: ConfigDefaults = {
+        autoConvert: true,
+        overwriteExisting: true,
+        organizeInSubdirectory: true,
+        markdownSubdirectoryName: 'DocuGenius',
+        extractImages: false,
+        imageOutputFolder: 'images',
+        imageMinSize: 100,
+        enableDocumentSplitting: true,
+        documentSplittingThreshold: 500000,
+        batchConversionBehavior: 'askOnce',
+        showSuccessNotifications: true,
+        copyTextFiles: false,
+        createProjectConfig: true,
+        batchDetectionWindow: 3000
+    };
+    private static readonly RESETTABLE_KEYS: readonly ConfigKey[] = [
+        'autoConvert',
+        'overwriteExisting',
+        'organizeInSubdirectory',
+        'markdownSubdirectoryName',
+        'extractImages',
+        'imageOutputFolder',
+        'imageMinSize',
+        'enableDocumentSplitting',
+        'documentSplittingThreshold',
+        'batchConversionBehavior',
+        'showSuccessNotifications',
+        'copyTextFiles',
+        'createProjectConfig',
+        'batchDetectionWindow'
+    ];
+
+    private getConfig(): vscode.WorkspaceConfiguration {
+        return vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
+    }
+
+    private getValue<K extends ConfigKey>(key: K): ConfigDefaults[K] {
+        const config = this.getConfig();
+        return config.get<ConfigDefaults[K]>(key, ConfigurationManager.DEFAULTS[key]);
+    }
 
     /**
      * Check if auto-conversion is enabled
      */
     isAutoConvertEnabled(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('autoConvert', true);
+        return this.getValue('autoConvert');
     }
 
     /**
      * Check if existing files should be overwritten
      */
     shouldOverwriteExisting(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('overwriteExisting', true);
+        return this.getValue('overwriteExisting');
     }
 
     /**
      * Check if images should be extracted
      */
     shouldExtractImages(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('extractImages', false);
+        return this.getValue('extractImages');
     }
 
     /**
      * Get minimum image size for extraction
      */
     getImageMinSize(): number {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<number>('imageMinSize', 100);
+        return this.getValue('imageMinSize');
     }
 
     /**
      * Get image output folder name
      */
     getImageOutputFolder(): string {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<string>('imageOutputFolder', 'images');
+        return this.getValue('imageOutputFolder');
     }
 
     /**
@@ -55,100 +144,93 @@ export class ConfigurationManager {
      * Check if files should be organized in markdown subdirectory
      */
     shouldOrganizeInSubdirectory(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('organizeInSubdirectory', true);
+        return this.getValue('organizeInSubdirectory');
     }
 
     /**
      * Check if success notifications should be shown
      */
     shouldShowSuccessNotifications(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('showSuccessNotifications', true);
+        return this.getValue('showSuccessNotifications');
     }
 
     /**
      * Check if project configuration file should be created
      */
     shouldCreateProjectConfig(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('createProjectConfig', true);
+        return this.getValue('createProjectConfig');
     }
 
     /**
      * Check if plain text files should be copied to knowledge base folder
      */
     shouldCopyTextFiles(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('copyTextFiles', false);
+        return this.getValue('copyTextFiles');
     }
 
     /**
      * Check if document splitting is enabled
      */
     isDocumentSplittingEnabled(): boolean {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<boolean>('enableDocumentSplitting', true);
+        return this.getValue('enableDocumentSplitting');
     }
 
     /**
      * Get document splitting threshold (character count)
      */
     getDocumentSplittingThreshold(): number {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<number>('documentSplittingThreshold', 500000);
+        return this.getValue('documentSplittingThreshold');
     }
 
     /**
      * Get batch conversion behavior setting
      */
-    getBatchConversionBehavior(): 'askForEach' | 'askOnce' | 'convertAll' | 'skipAll' {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<'askForEach' | 'askOnce' | 'convertAll' | 'skipAll'>('batchConversionBehavior', 'askOnce');
+    getBatchConversionBehavior(): BatchConversionBehavior {
+        return this.getValue('batchConversionBehavior');
     }
 
     /**
      * Get batch detection window in milliseconds
      */
     getBatchDetectionWindow(): number {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<number>('batchDetectionWindow', 3000);
+        return this.getValue('batchDetectionWindow');
     }
 
     /**
      * Get the name of the subdirectory for converted files
      */
     getMarkdownSubdirectoryName(): string {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        return config.get<string>('markdownSubdirectoryName', 'DocuGenius');
+        return this.getValue('markdownSubdirectoryName');
     }
 
     /**
      * Update a configuration value
      */
     async updateConfiguration(key: string, value: any, target?: vscode.ConfigurationTarget): Promise<void> {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
+        const config = this.getConfig();
         await config.update(key, value, target || vscode.ConfigurationTarget.Global);
     }
 
     /**
      * Get all configuration as an object
      */
-    getAllConfiguration(): {
-        autoConvert: boolean;
-        overwriteExisting: boolean;
-        extractImages: boolean;
-        supportedExtensions: string[];
-        imageMinSize: number;
-        imageOutputFolder: string;
-    } {
+    getAllConfiguration(): ExtensionConfiguration {
         return {
             autoConvert: this.isAutoConvertEnabled(),
             overwriteExisting: this.shouldOverwriteExisting(),
+            organizeInSubdirectory: this.shouldOrganizeInSubdirectory(),
+            markdownSubdirectoryName: this.getMarkdownSubdirectoryName(),
             extractImages: this.shouldExtractImages(),
-            supportedExtensions: this.getSupportedExtensions(),
+            imageOutputFolder: this.getImageOutputFolder(),
             imageMinSize: this.getImageMinSize(),
-            imageOutputFolder: this.getImageOutputFolder()
+            enableDocumentSplitting: this.isDocumentSplittingEnabled(),
+            documentSplittingThreshold: this.getDocumentSplittingThreshold(),
+            batchConversionBehavior: this.getBatchConversionBehavior(),
+            showSuccessNotifications: this.shouldShowSuccessNotifications(),
+            copyTextFiles: this.shouldCopyTextFiles(),
+            createProjectConfig: this.shouldCreateProjectConfig(),
+            batchDetectionWindow: this.getBatchDetectionWindow(),
+            supportedExtensions: this.getSupportedExtensions()
         };
     }
 
@@ -156,11 +238,10 @@ export class ConfigurationManager {
      * Reset configuration to defaults
      */
     async resetToDefaults(): Promise<void> {
-        const config = vscode.workspace.getConfiguration(ConfigurationManager.SECTION);
-        await config.update('autoConvert', undefined, vscode.ConfigurationTarget.Global);
-        await config.update('overwriteExisting', undefined, vscode.ConfigurationTarget.Global);
-        await config.update('extractImages', undefined, vscode.ConfigurationTarget.Global);
-        await config.update('imageMinSize', undefined, vscode.ConfigurationTarget.Global);
+        const config = this.getConfig();
+        for (const key of ConfigurationManager.RESETTABLE_KEYS) {
+            await config.update(key, undefined, vscode.ConfigurationTarget.Global);
+        }
     }
 
     /**

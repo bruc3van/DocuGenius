@@ -850,7 +850,7 @@ def _is_decorative_image(data, width=None, height=None, is_decorative_flag=False
 
 def _setup_image_output_dir(markdown_output_path):
     """
-    在 Markdown 输出文件旁创建 images/ 子目录。
+    在 Markdown 输出文件旁创建配置的图片子目录。
 
     Args:
         markdown_output_path: Markdown 输出文件的绝对路径
@@ -866,17 +866,17 @@ def _setup_image_output_dir(markdown_output_path):
 
 def _save_extracted_image(data, image_save_dir, image_rel_dir, base_name, image_counter):
     """
-    保存图片到 images/ 目录。
+    保存图片到配置的图片目录。
 
     Args:
         data: 图片二进制数据
-        image_save_dir: images/ 目录绝对路径
-        image_rel_dir: images/ 相对路径（用于 Markdown 引用）
+        image_save_dir: 图片目录绝对路径
+        image_rel_dir: 图片目录相对路径（用于 Markdown 引用）
         base_name: 文档基础名称（不含扩展名）
         image_counter: 图片序号
 
     Returns:
-        相对路径字符串，如 'images/report_img_001.png'，失败返回 None
+        相对路径字符串，如 'assets/report_img_001.png'，失败返回 None
     """
     fmt = _detect_image_format(data)
     if fmt is None:
@@ -2546,7 +2546,7 @@ def main():
             pass
 
     if len(sys.argv) < 2:
-        print("Usage: converter.py <file_path> [extract_images] [output_path]")
+        print("Usage: converter.py <file_path> [extract_images] [output_path] [image_output_folder]")
         sys.exit(1)
 
     file_path = sys.argv[1]
@@ -2554,6 +2554,7 @@ def main():
     if len(sys.argv) > 2 and sys.argv[2].lower() in ('false', 'no', '0'):
         extract_images = False
     output_path = sys.argv[3] if len(sys.argv) > 3 else None
+    image_output_folder = sys.argv[4] if len(sys.argv) > 4 else 'images'
 
     # 确定图片输出目录
     image_save_dir = None
@@ -2561,14 +2562,14 @@ def main():
     file_ext = os.path.splitext(file_path)[1].lower()
     if extract_images and file_ext in ('.docx', '.xlsx', '.pptx'):
         if output_path:
-            # 图片放在 output_path 同级的 images/ 目录
+            # 图片放在 output_path 同级的配置目录下
             out_dir = os.path.dirname(os.path.abspath(output_path))
-            image_save_dir = os.path.join(out_dir, 'images')
-            image_rel_dir = 'images'
+            image_save_dir = os.path.join(out_dir, image_output_folder)
+            image_rel_dir = image_output_folder
         else:
-            # fallback：放在输入文件目录的 images/ 下
-            image_save_dir = os.path.join(os.path.dirname(os.path.abspath(file_path)), 'images')
-            image_rel_dir = 'images'
+            # fallback：放在输入文件目录的配置目录下
+            image_save_dir = os.path.join(os.path.dirname(os.path.abspath(file_path)), image_output_folder)
+            image_rel_dir = image_output_folder
 
     # 调用对应转换函数
     try:

@@ -371,7 +371,8 @@ export class MarkitdownConverter {
                         // Pass extract images configuration to Python converter
                         const extractImages = this.configManager.shouldExtractImages();
                         const outputPath = this.getOutputPath(filePath);
-                        args.push(filePath, extractImages ? 'true' : 'false', outputPath);
+                        const imageOutputFolder = this.configManager.getImageOutputFolder();
+                        args.push(filePath, extractImages ? 'true' : 'false', outputPath, imageOutputFolder);
                     } else {
                         args.push(filePath);
                     }
@@ -633,20 +634,20 @@ export class MarkitdownConverter {
             // Delete images folder if it exists (consistent with Python image extractor)
             const originalDir = path.dirname(filePath);
             const originalBaseName = path.parse(fileName).name;
+            const imageFolderNames = new Set<string>([
+                this.configManager.getImageOutputFolder(),
+                'images'
+            ]);
 
-            let imagesDir: string;
-            if (this.configManager.shouldOrganizeInSubdirectory()) {
-                const subdirName = this.configManager.getMarkdownSubdirectoryName();
-                const markdownDir = path.join(originalDir, subdirName);
-                imagesDir = path.join(markdownDir, 'images', originalBaseName);
-            } else {
-                imagesDir = path.join(originalDir, 'images', originalBaseName);
-            }
+            for (const folderName of imageFolderNames) {
+                const imagesDir = this.getImageDirectoryForDocument(originalDir, originalBaseName, folderName);
+                if (!fs.existsSync(imagesDir)) {
+                    continue;
+                }
 
-            if (fs.existsSync(imagesDir)) {
                 fs.rmSync(imagesDir, { recursive: true, force: true });
                 console.log(`Deleted images folder: ${imagesDir}`);
-                this.statusManager.log(localize('converter.log.deletedImages', originalBaseName));
+                this.statusManager.log(localize('converter.log.deletedImages', `${folderName}/${originalBaseName}/`));
             }
 
             // Also clean up legacy assets folder if it exists
@@ -750,18 +751,8 @@ export class MarkitdownConverter {
 
             // Determine output directory based on configuration
             const originalDir = path.dirname(filePath);
-            const imageOutputFolder = this.configManager.getImageOutputFolder();
-            let outputDir: string;
-            let markdownDir: string;
-
-            if (this.configManager.shouldOrganizeInSubdirectory()) {
-                const subdirName = this.configManager.getMarkdownSubdirectoryName();
-                markdownDir = path.join(originalDir, subdirName);
-                outputDir = path.join(markdownDir, imageOutputFolder);
-            } else {
-                markdownDir = originalDir;
-                outputDir = path.join(originalDir, imageOutputFolder);
-            }
+            const markdownDir = this.getMarkdownOutputDirectory(originalDir);
+            const outputDir = this.getImageOutputRootDirectory(originalDir);
 
             // Get minimum image size from configuration
             const minImageSize = this.configManager.getImageMinSize();
@@ -791,6 +782,7 @@ export class MarkitdownConverter {
         try {
             const originalDir = path.dirname(originalFilePath);
             const originalBaseName = path.parse(path.basename(originalFilePath)).name;
+            const relativeImageDir = this.getImageRelativeDirectory(originalBaseName);
 
             // First check if there are any images in the markdown content
             const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
@@ -801,17 +793,7 @@ export class MarkitdownConverter {
                 return markdownContent;
             }
 
-            let imagesDir: string;
-
-            if (this.configManager.shouldOrganizeInSubdirectory()) {
-                // Create images directory in the subdirectory (consistent with Python extractor)
-                const subdirName = this.configManager.getMarkdownSubdirectoryName();
-                const markdownDir = path.join(originalDir, subdirName);
-                imagesDir = path.join(markdownDir, 'images', originalBaseName);
-            } else {
-                // Create images directory in the same location as the original file
-                imagesDir = path.join(originalDir, 'images', originalBaseName);
-            }
+            const imagesDir = this.getImageDirectoryForDocument(originalDir, originalBaseName);
 
             // Create images directory only when we have images
             if (!fs.existsSync(imagesDir)) {
@@ -828,9 +810,9 @@ export class MarkitdownConverter {
                 const [fullMatch, altText, imagePath] = match;
 
                 // If image path is not already relative to images folder, update it
-                if (!imagePath.startsWith(`images/${originalBaseName}/`)) {
+                if (!imagePath.startsWith(`${relativeImageDir}/`)) {
                     const imageName = path.basename(imagePath);
-                    const newImagePath = `images/${originalBaseName}/${imageName}`;
+                    const newImagePath = `${relativeImageDir}/${imageName}`;
                     processedContent = processedContent.replace(fullMatch, `![${altText}](${newImagePath})`);
                 }
             }
@@ -897,5 +879,27 @@ export class MarkitdownConverter {
     private getErrorMessage(error: unknown): string {
         return error instanceof Error ? error.message : localize('common.unknownError');
     }
-    
+
+    private getMarkdownOutputDirectory(originalDir: string): string {
+        if (this.configManager.shouldOrganizeInSubdirectory()) {
+            return path.join(originalDir, this.configManager.getMarkdownSubdirectoryName());
+        }
+
+        return originalDir;
+    }
+
+    private getImageOutputRootDirectory(originalDir: string, folderName?: string): string {
+        return path.join(
+            this.getMarkdownOutputDirectory(originalDir),
+            folderName ?? this.configManager.getImageOutputFolder()
+        );
+    }
+
+    private getImageDirectoryForDocument(originalDir: string, baseName: string, folderName?: string): string {
+        return path.join(this.getImageOutputRootDirectory(originalDir, folderName), baseName);
+    }
+
+    private getImageRelativeDirectory(baseName: string, folderName?: string): string {
+        return path.posix.join(folderName ?? this.configManager.getImageOutputFolder(), baseName);
+    }
 }

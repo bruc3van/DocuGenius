@@ -19,7 +19,7 @@ class ImageExtractor:
         self.document_name = self.document_path.stem
         self.document_ext = self.document_path.suffix.lower()
 
-        # Set output directory - use DocuGenius/images/{document_name}/ structure
+        # Set output directory under the configured DocuGenius image folder
         if output_dir:
             self.output_dir = Path(output_dir) / self.document_name
         else:
@@ -134,7 +134,7 @@ class ImageExtractor:
                     image_info = {
                         'filename': img_filename,
                         'path': str(img_path),
-                        'relative_path': f"images/{self.document_name}/{img_filename}",
+                        'relative_path': self._calculate_relative_path(img_path),
                         'format': img_ext.upper(),
                         'size_bytes': len(image_data),
                         'source': 'docx_relationship'
@@ -208,7 +208,7 @@ class ImageExtractor:
                         image_info = {
                             'filename': img_filename,
                             'path': str(img_path),
-                            'relative_path': f"images/{self.document_name}/{img_filename}",
+                            'relative_path': self._calculate_relative_path(img_path),
                             'slide': slide_num + 1,
                             'format': img_ext.upper(),
                             'size_bytes': len(image_data),
@@ -340,7 +340,7 @@ class ImageExtractor:
             return relative_path
         except Exception as e:
             # Fallback to simple relative path
-            return f"images/{self.document_name}/{image_path.name}"
+            return f"{self.output_dir.name}/{self.document_name}/{image_path.name}"
 
     def _calculate_file_hash(self, file_path: Path) -> str:
         """Calculate MD5 hash of a file for duplicate detection"""

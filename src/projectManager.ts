@@ -13,6 +13,7 @@ export interface ProjectConfig {
 
 export class ProjectManager {
     private static readonly CONFIG_FILE_NAME = '.docugenius.json';
+    private static readonly WORKSPACE_STATE_PREFIX = 'docugenius.projectConfig';
     private static readonly DEFAULT_CONFIG: ProjectConfig = {
         enabled: false,
         autoConvert: true,
@@ -20,6 +21,8 @@ export class ProjectManager {
         supportedExtensions: ['.docx', '.xlsx', '.pptx', '.pdf'],
         lastActivated: new Date().toISOString()
     };
+
+    constructor(private readonly context: vscode.ExtensionContext) {}
 
     private shouldUseProjectConfig(): boolean {
         const config = vscode.workspace.getConfiguration('documentConverter');
@@ -29,6 +32,27 @@ export class ProjectManager {
     private getConfiguredFolderName(): string {
         const config = vscode.workspace.getConfiguration('documentConverter');
         return config.get<string>('markdownSubdirectoryName', 'DocuGenius');
+    }
+
+    private getWorkspaceConfigKey(rootPath: string): string {
+        return `${ProjectManager.WORKSPACE_STATE_PREFIX}:${rootPath}`;
+    }
+
+    private loadWorkspaceProjectConfig(rootPath: string): ProjectConfig | undefined {
+        return this.context.workspaceState.get<ProjectConfig>(this.getWorkspaceConfigKey(rootPath));
+    }
+
+    private async saveWorkspaceProjectConfig(rootPath: string, config: ProjectConfig): Promise<void> {
+        await this.context.workspaceState.update(this.getWorkspaceConfigKey(rootPath), config);
+    }
+
+    private async clearWorkspaceProjectConfig(rootPath: string): Promise<void> {
+        await this.context.workspaceState.update(this.getWorkspaceConfigKey(rootPath), undefined);
+    }
+
+    private hasPersistedProjectState(rootPath: string): boolean {
+        const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
+        return fs.existsSync(configPath) || this.loadWorkspaceProjectConfig(rootPath) !== undefined;
     }
 
     /**
@@ -41,9 +65,7 @@ export class ProjectManager {
         }
 
         const rootPath = workspaceFolders[0].uri.fsPath;
-        const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
-
-        if (fs.existsSync(configPath)) {
+        if (this.hasPersistedProjectState(rootPath)) {
             try {
                 const config = this.loadProjectConfig(rootPath);
                 return config.enabled;
@@ -136,9 +158,14 @@ export class ProjectManager {
         };
 
         try {
-            // Only create project config file if user has enabled this option
-            if (this.shouldUseProjectConfig()) {
+            const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
+            const shouldPersistToFile = this.shouldUseProjectConfig() || fs.existsSync(configPath);
+
+            if (shouldPersistToFile) {
                 await this.saveProjectConfig(rootPath, projectConfig);
+                await this.clearWorkspaceProjectConfig(rootPath);
+            } else {
+                await this.saveWorkspaceProjectConfig(rootPath, projectConfig);
             }
 
             if (showConvertPrompt && this.hasConvertibleFiles(rootPath)) {
@@ -182,10 +209,19 @@ export class ProjectManager {
         const rootPath = workspaceFolders[0].uri.fsPath;
 
         try {
-            if (this.shouldUseProjectConfig()) {
+            const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
+            const shouldPersistToFile = this.shouldUseProjectConfig() || fs.existsSync(configPath);
+
+            if (shouldPersistToFile) {
                 const config = this.loadProjectConfig(rootPath);
                 config.enabled = false;
                 await this.saveProjectConfig(rootPath, config);
+                await this.clearWorkspaceProjectConfig(rootPath);
+            } else {
+                const config = this.loadProjectConfig(rootPath);
+                config.enabled = false;
+                config.lastActivated = new Date().toISOString();
+                await this.saveWorkspaceProjectConfig(rootPath, config);
             }
 
             vscode.window.showInformationMessage(localize('project.info.disabled'));
@@ -209,20 +245,25 @@ export class ProjectManager {
         const targetPath = rootPath || workspaceFolders[0].uri.fsPath;
         const configPath = path.join(targetPath, ProjectManager.CONFIG_FILE_NAME);
 
-        if (!fs.existsSync(configPath)) {
-            return { ...ProjectManager.DEFAULT_CONFIG };
+        if (fs.existsSync(configPath)) {
+            try {
+                const configContent = fs.readFileSync(configPath, 'utf8');
+                const config = JSON.parse(configContent) as ProjectConfig;
+
+                // 合并默认配置以确保所有字段都存在
+                return { ...ProjectManager.DEFAULT_CONFIG, ...config };
+            } catch (error) {
+                console.error('Error parsing project config:', error);
+                return { ...ProjectManager.DEFAULT_CONFIG };
+            }
         }
 
-        try {
-            const configContent = fs.readFileSync(configPath, 'utf8');
-            const config = JSON.parse(configContent) as ProjectConfig;
-            
-            // 合并默认配置以确保所有字段都存在
-            return { ...ProjectManager.DEFAULT_CONFIG, ...config };
-        } catch (error) {
-            console.error('Error parsing project config:', error);
-            return { ...ProjectManager.DEFAULT_CONFIG };
+        const workspaceConfig = this.loadWorkspaceProjectConfig(targetPath);
+        if (workspaceConfig) {
+            return { ...ProjectManager.DEFAULT_CONFIG, ...workspaceConfig };
         }
+
+        return { ...ProjectManager.DEFAULT_CONFIG };
     }
 
     /**
@@ -274,13 +315,10 @@ export class ProjectManager {
                 }
                 return enabled;
             case disableLabel:
-                // 只有在用户启用项目配置文件时才创建配置文件，避免重复提醒
-                if (this.shouldUseProjectConfig()) {
-                    await this.saveProjectConfig(
-                        vscode.workspace.workspaceFolders![0].uri.fsPath,
-                        { ...ProjectManager.DEFAULT_CONFIG, enabled: false }
-                    );
-                }
+                await this.saveWorkspaceProjectConfig(
+                    vscode.workspace.workspaceFolders![0].uri.fsPath,
+                    { ...ProjectManager.DEFAULT_CONFIG, enabled: false, lastActivated: new Date().toISOString() }
+                );
                 return false;
             case remindLaterLabel:
             default:
