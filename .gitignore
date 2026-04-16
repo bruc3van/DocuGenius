@@ -5,6 +5,9 @@ node_modules
 *.vsix
 .DS_Store
 *.log
+__pycache__/
+**/__pycache__/
+*.pyc
 .env
 .env.local
 .env.development.local
