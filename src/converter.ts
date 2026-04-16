@@ -6,7 +6,7 @@ import { ConfigurationManager } from './configuration';
 import { StatusManager } from './statusManager';
 import { localize } from './i18n';
 import { COPYABLE_EXTENSIONS } from './constants';
-import { splitByHeaders, createIndexFile } from './utils';
+import { splitByHeaders, createIndexFile, collectRelatedOutputFileNames } from './utils';
 import { RuntimeManager, ConversionTrigger, RuntimeResolution } from './runtimeManager';
 import { pathContainsDirectorySegment } from './pathUtils';
 
@@ -63,6 +63,18 @@ export interface ConversionResult {
     success: boolean;
     outputPath?: string;
     error?: string;
+}
+
+interface CleanupDirectoryTarget {
+    path: string;
+    logKey: 'converter.log.deletedImages' | 'converter.log.deletedLegacyAssets';
+    logValue: string;
+}
+
+export interface DeletionCleanupPlan {
+    outputFiles: string[];
+    directories: CleanupDirectoryTarget[];
+    hasCleanupTargets: boolean;
 }
 
 export class MarkitdownConverter {
@@ -136,6 +148,8 @@ export class MarkitdownConverter {
                 return { success: true, outputPath };
             }
 
+            this.ensureOutputDirectory(outputPath);
+
             const runtime = await this.runtimeManager.ensureReadyForConversion(trigger);
             if (!runtime.ready) {
                 const fileName = path.basename(filePath);
@@ -162,7 +176,7 @@ export class MarkitdownConverter {
 
                 try {
                     // Convert using built-in conversion engine
-                    const markdownContent = await this.callConverter(filePath, trigger);
+                    const markdownContent = await this.callConverter(filePath, trigger, outputPath);
 
                     const hasContent = markdownContent.replace(/\s+/g, '').length > 0;
                     if (!hasContent) {
@@ -356,7 +370,7 @@ export class MarkitdownConverter {
     /**
      * Call built-in converter to convert file
      */
-    private async callConverter(filePath: string, trigger: ConversionTrigger): Promise<string> {
+    private async callConverter(filePath: string, trigger: ConversionTrigger, outputPath: string): Promise<string> {
         try {
             // Try embedded binary first, then fallback to system installations
             const commands = await this.getConverterCommands(trigger);
@@ -371,7 +385,6 @@ export class MarkitdownConverter {
                         // Both the Windows script path and the packaged macOS binary
                         // delegate to converter.py and support the same argument contract.
                         const extractImages = this.configManager.shouldExtractImages();
-                        const outputPath = this.getOutputPath(filePath);
                         const imageOutputFolder = this.configManager.getImageOutputFolder();
                         args.push(filePath, extractImages ? 'true' : 'false', outputPath, imageOutputFolder);
                     } else {
@@ -442,11 +455,6 @@ export class MarkitdownConverter {
             const subdirName = this.configManager.getMarkdownSubdirectoryName();
             const markdownDir = path.join(dir, subdirName);
 
-            // Ensure the markdown directory exists
-            if (!fs.existsSync(markdownDir)) {
-                fs.mkdirSync(markdownDir, { recursive: true });
-            }
-
             // For files that need conversion, use .md extension
             const supportedExtensions = this.configManager.getSupportedExtensions();
             if (supportedExtensions.includes(fileExtension)) {
@@ -469,6 +477,10 @@ export class MarkitdownConverter {
                 return path.join(dir, `${nameWithoutExt}_copy${ext}`);
             }
         }
+    }
+
+    private ensureOutputDirectory(outputPath: string): void {
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     }
 
     /**
@@ -589,6 +601,8 @@ export class MarkitdownConverter {
                 return { success: true, outputPath };
             }
 
+            this.ensureOutputDirectory(outputPath);
+
             // Show progress
             const fileName = path.basename(filePath);
             this.statusManager.showConversionInProgress(fileName);
@@ -617,54 +631,46 @@ export class MarkitdownConverter {
     /**
      * Handle file deletion - clean up corresponding markdown file and assets
      */
-    async handleFileDeleted(filePath: string): Promise<void> {
+    getDeletionCleanupPlan(filePath: string): DeletionCleanupPlan {
+        const outputPath = this.getOutputPath(filePath);
+        const outputFiles = this.collectGeneratedOutputFiles(outputPath);
+        const directories = this.collectGeneratedAssetDirectories(filePath);
+
+        return {
+            outputFiles,
+            directories,
+            hasCleanupTargets: outputFiles.length > 0 || directories.length > 0
+        };
+    }
+
+    async handleFileDeleted(filePath: string, cleanupPlan?: DeletionCleanupPlan): Promise<void> {
         try {
             const fileName = path.basename(filePath);
             console.log(`Handling deletion of: ${fileName}`);
-
-            // Get the corresponding output path
-            const outputPath = this.getOutputPath(filePath);
-
-            // Delete the markdown file if it exists
-            if (fs.existsSync(outputPath)) {
-                fs.unlinkSync(outputPath);
-                console.log(`Deleted corresponding markdown file: ${outputPath}`);
-                this.statusManager.log(localize('converter.log.deletedOutput', path.basename(outputPath), fileName));
+            const plan = cleanupPlan ?? this.getDeletionCleanupPlan(filePath);
+            if (!plan.hasCleanupTargets) {
+                console.log(`No generated outputs to clean up for: ${fileName}`);
+                return;
             }
 
-            // Delete images folder if it exists (consistent with Python image extractor)
-            const originalDir = path.dirname(filePath);
-            const originalBaseName = path.parse(fileName).name;
-            const imageFolderNames = new Set<string>([
-                this.configManager.getImageOutputFolder(),
-                'images'
-            ]);
-
-            for (const folderName of imageFolderNames) {
-                const imagesDir = this.getImageDirectoryForDocument(originalDir, originalBaseName, folderName);
-                if (!fs.existsSync(imagesDir)) {
+            for (const outputFile of plan.outputFiles) {
+                if (!fs.existsSync(outputFile)) {
                     continue;
                 }
 
-                fs.rmSync(imagesDir, { recursive: true, force: true });
-                console.log(`Deleted images folder: ${imagesDir}`);
-                this.statusManager.log(localize('converter.log.deletedImages', `${folderName}/${originalBaseName}/`));
+                fs.unlinkSync(outputFile);
+                console.log(`Deleted corresponding output file: ${outputFile}`);
+                this.statusManager.log(localize('converter.log.deletedOutput', path.basename(outputFile), fileName));
             }
 
-            // Also clean up legacy assets folder if it exists
-            let legacyAssetsDir: string;
-            if (this.configManager.shouldOrganizeInSubdirectory()) {
-                const subdirName = this.configManager.getMarkdownSubdirectoryName();
-                const markdownDir = path.join(originalDir, subdirName);
-                legacyAssetsDir = path.join(markdownDir, `${originalBaseName}_assets`);
-            } else {
-                legacyAssetsDir = path.join(originalDir, `${originalBaseName}_assets`);
-            }
+            for (const directory of plan.directories) {
+                if (!fs.existsSync(directory.path)) {
+                    continue;
+                }
 
-            if (fs.existsSync(legacyAssetsDir)) {
-                fs.rmSync(legacyAssetsDir, { recursive: true, force: true });
-                console.log(`Deleted legacy assets folder: ${legacyAssetsDir}`);
-                this.statusManager.log(localize('converter.log.deletedLegacyAssets', originalBaseName));
+                fs.rmSync(directory.path, { recursive: true, force: true });
+                console.log(`Deleted generated directory: ${directory.path}`);
+                this.statusManager.log(localize(directory.logKey, directory.logValue));
             }
 
             // Show status update
@@ -898,6 +904,70 @@ export class MarkitdownConverter {
 
     private getImageDirectoryForDocument(originalDir: string, baseName: string, folderName?: string): string {
         return path.join(this.getImageOutputRootDirectory(originalDir, folderName), baseName);
+    }
+
+    private collectGeneratedOutputFiles(outputPath: string): string[] {
+        const outputDirectory = path.dirname(outputPath);
+        const relatedFiles = new Set<string>();
+
+        if (fs.existsSync(outputPath) && fs.statSync(outputPath).isFile()) {
+            relatedFiles.add(outputPath);
+        }
+
+        if (!fs.existsSync(outputDirectory) || !fs.statSync(outputDirectory).isDirectory()) {
+            return Array.from(relatedFiles);
+        }
+
+        const directoryEntries = fs.readdirSync(outputDirectory);
+        const relatedFileNames = collectRelatedOutputFileNames(outputPath, directoryEntries);
+        for (const fileName of relatedFileNames) {
+            relatedFiles.add(path.join(outputDirectory, fileName));
+        }
+
+        return Array.from(relatedFiles);
+    }
+
+    private collectGeneratedAssetDirectories(filePath: string): CleanupDirectoryTarget[] {
+        const fileName = path.basename(filePath);
+        const originalDir = path.dirname(filePath);
+        const originalBaseName = path.parse(fileName).name;
+        const directories = new Map<string, CleanupDirectoryTarget>();
+        const imageFolderNames = new Set<string>([
+            this.configManager.getImageOutputFolder(),
+            'images'
+        ]);
+
+        for (const folderName of imageFolderNames) {
+            const imagesDir = this.getImageDirectoryForDocument(originalDir, originalBaseName, folderName);
+            if (!fs.existsSync(imagesDir)) {
+                continue;
+            }
+
+            directories.set(imagesDir, {
+                path: imagesDir,
+                logKey: 'converter.log.deletedImages',
+                logValue: `${folderName}/${originalBaseName}/`
+            });
+        }
+
+        let legacyAssetsDir: string;
+        if (this.configManager.shouldOrganizeInSubdirectory()) {
+            const subdirName = this.configManager.getMarkdownSubdirectoryName();
+            const markdownDir = path.join(originalDir, subdirName);
+            legacyAssetsDir = path.join(markdownDir, `${originalBaseName}_assets`);
+        } else {
+            legacyAssetsDir = path.join(originalDir, `${originalBaseName}_assets`);
+        }
+
+        if (fs.existsSync(legacyAssetsDir)) {
+            directories.set(legacyAssetsDir, {
+                path: legacyAssetsDir,
+                logKey: 'converter.log.deletedLegacyAssets',
+                logValue: originalBaseName
+            });
+        }
+
+        return Array.from(directories.values());
     }
 
     private getImageRelativeDirectory(baseName: string, folderName?: string): string {

@@ -133,6 +133,21 @@
           "minimum": 1000,
           "maximum": 10000,
           "description": "%config.batchDetectionWindow.description%"
+        },
+        "documentConverter.deleteGeneratedOutputsBehavior": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "delete",
+            "keep"
+          ],
+          "default": "ask",
+          "description": "%config.deleteGeneratedOutputsBehavior.description%",
+          "enumDescriptions": [
+            "%config.deleteGeneratedOutputsBehavior.ask%",
+            "%config.deleteGeneratedOutputsBehavior.delete%",
+            "%config.deleteGeneratedOutputsBehavior.keep%"
+          ]
         }
       }
     },

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { localize } from './i18n';
 
 /**
@@ -42,4 +43,46 @@ export function createIndexFile(originalFileName: string, totalParts: number, ba
     indexContent += `*${localize('split.index.generated')}*`;
 
     return indexContent;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Collect generated Markdown files related to a single output path.
+ * This includes the main Markdown file plus split parts and index files.
+ */
+export function collectRelatedOutputFileNames(outputPath: string, directoryEntries: string[]): string[] {
+    const relatedFiles = new Set<string>();
+    const outputFileName = path.basename(outputPath);
+
+    if (directoryEntries.includes(outputFileName)) {
+        relatedFiles.add(outputFileName);
+    }
+
+    if (path.extname(outputPath).toLowerCase() !== '.md') {
+        return Array.from(relatedFiles);
+    }
+
+    const baseName = path.basename(outputPath, '.md');
+    const splitPattern = new RegExp(`^${escapeRegExp(baseName)}_(?:part\\d+|index)\\.md$`);
+
+    for (const entry of directoryEntries) {
+        if (splitPattern.test(entry)) {
+            relatedFiles.add(entry);
+        }
+    }
+
+    return Array.from(relatedFiles).sort((left, right) => {
+        if (left === outputFileName) {
+            return -1;
+        }
+
+        if (right === outputFileName) {
+            return 1;
+        }
+
+        return left.localeCompare(right);
+    });
 }

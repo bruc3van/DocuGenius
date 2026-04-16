@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { MarkitdownConverter } from './converter';
-import { ConfigurationManager } from './configuration';
+import { DeletionCleanupPlan, MarkitdownConverter } from './converter';
+import { ConfigurationManager, DeleteGeneratedOutputsBehavior } from './configuration';
 import { ProjectManager } from './projectManager';
 import { COPYABLE_EXTENSIONS } from './constants';
 import { pathContainsDirectorySegment } from './pathUtils';
@@ -118,7 +118,15 @@ export class FileWatcher implements vscode.Disposable {
 
             if (eventType === 'deleted') {
                 // Handle file deletion even when auto-convert is disabled
-                await this.converter.handleFileDeleted(filePath);
+                const cleanupPlan = this.converter.getDeletionCleanupPlan(filePath);
+                if (!cleanupPlan.hasCleanupTargets) {
+                    return;
+                }
+
+                const shouldDeleteGeneratedOutputs = await this.shouldDeleteGeneratedOutputs(uri, fileName, cleanupPlan);
+                if (shouldDeleteGeneratedOutputs) {
+                    await this.converter.handleFileDeleted(filePath, cleanupPlan);
+                }
                 return;
             }
 
@@ -278,6 +286,83 @@ export class FileWatcher implements vscode.Disposable {
     private isAutoConvertEnabled(): boolean {
         const projectAutoConvert = this.projectManager.getProjectAutoConvert();
         return projectAutoConvert ?? this.configManager.isAutoConvertEnabled();
+    }
+
+    private async shouldDeleteGeneratedOutputs(
+        uri: vscode.Uri,
+        fileName: string,
+        cleanupPlan: DeletionCleanupPlan
+    ): Promise<boolean> {
+        const deleteBehavior = this.configManager.getDeleteGeneratedOutputsBehavior();
+
+        switch (deleteBehavior) {
+            case 'delete':
+                return true;
+            case 'keep':
+                return false;
+            case 'ask':
+            default:
+                return this.askForDeletionCleanupConfirmation(uri, fileName, cleanupPlan);
+        }
+    }
+
+    private async askForDeletionCleanupConfirmation(
+        uri: vscode.Uri,
+        fileName: string,
+        cleanupPlan: DeletionCleanupPlan
+    ): Promise<boolean> {
+        const deleteThisTimeLabel = localize('fileWatcher.action.deleteThisTime');
+        const alwaysDeleteLabel = localize('fileWatcher.action.alwaysDeleteGenerated');
+        const keepGeneratedLabel = localize('fileWatcher.action.keepGenerated');
+        const generatedFileCount = cleanupPlan.outputFiles.length;
+        const generatedDirectoryCount = cleanupPlan.directories.length;
+
+        const choice = await vscode.window.showWarningMessage(
+            localize('fileWatcher.prompt.deleteGeneratedTitle', fileName),
+            {
+                modal: true,
+                detail: localize(
+                    'fileWatcher.prompt.deleteGeneratedDetail',
+                    generatedFileCount,
+                    generatedDirectoryCount
+                )
+            },
+            deleteThisTimeLabel,
+            alwaysDeleteLabel,
+            keepGeneratedLabel
+        );
+
+        switch (choice) {
+            case alwaysDeleteLabel:
+                await this.persistDeleteGeneratedOutputsBehavior(uri, 'delete');
+                vscode.window.showInformationMessage(localize('fileWatcher.info.deleteGeneratedAlways'));
+                return true;
+            case deleteThisTimeLabel:
+                return true;
+            case keepGeneratedLabel:
+                await this.persistDeleteGeneratedOutputsBehavior(uri, 'keep');
+                vscode.window.showInformationMessage(localize('fileWatcher.info.keepGeneratedAlways'));
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private async persistDeleteGeneratedOutputsBehavior(
+        uri: vscode.Uri,
+        behavior: DeleteGeneratedOutputsBehavior
+    ): Promise<void> {
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+        const target = workspaceFolder
+            ? vscode.ConfigurationTarget.WorkspaceFolder
+            : vscode.ConfigurationTarget.Workspace;
+
+        await this.configManager.updateConfiguration(
+            'deleteGeneratedOutputsBehavior',
+            behavior,
+            target,
+            uri
+        );
     }
 
     private queueCreatedFile(filePath: string, fileName: string, fileExtension: string): void {

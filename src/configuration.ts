@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SUPPORTED_CONVERT_EXTENSIONS } from './constants';
 
 export type BatchConversionBehavior = 'askForEach' | 'askOnce' | 'convertAll' | 'skipAll';
+export type DeleteGeneratedOutputsBehavior = 'ask' | 'delete' | 'keep';
 
 type ConfigKey =
     | 'autoConvert'
@@ -17,7 +18,8 @@ type ConfigKey =
     | 'showSuccessNotifications'
     | 'copyTextFiles'
     | 'createProjectConfig'
-    | 'batchDetectionWindow';
+    | 'batchDetectionWindow'
+    | 'deleteGeneratedOutputsBehavior';
 
 interface ConfigDefaults {
     autoConvert: boolean;
@@ -34,6 +36,7 @@ interface ConfigDefaults {
     copyTextFiles: boolean;
     createProjectConfig: boolean;
     batchDetectionWindow: number;
+    deleteGeneratedOutputsBehavior: DeleteGeneratedOutputsBehavior;
 }
 
 export interface ExtensionConfiguration {
@@ -51,6 +54,7 @@ export interface ExtensionConfiguration {
     copyTextFiles: boolean;
     createProjectConfig: boolean;
     batchDetectionWindow: number;
+    deleteGeneratedOutputsBehavior: DeleteGeneratedOutputsBehavior;
     supportedExtensions: string[];
 }
 
@@ -70,7 +74,8 @@ export class ConfigurationManager {
         showSuccessNotifications: true,
         copyTextFiles: false,
         createProjectConfig: true,
-        batchDetectionWindow: 3000
+        batchDetectionWindow: 3000,
+        deleteGeneratedOutputsBehavior: 'ask'
     };
     private static readonly RESETTABLE_KEYS: readonly ConfigKey[] = [
         'autoConvert',
@@ -86,7 +91,8 @@ export class ConfigurationManager {
         'showSuccessNotifications',
         'copyTextFiles',
         'createProjectConfig',
-        'batchDetectionWindow'
+        'batchDetectionWindow',
+        'deleteGeneratedOutputsBehavior'
     ];
 
     private getConfig(): vscode.WorkspaceConfiguration {
@@ -197,6 +203,13 @@ export class ConfigurationManager {
     }
 
     /**
+     * Get delete behavior for generated outputs when a source file is deleted
+     */
+    getDeleteGeneratedOutputsBehavior(): DeleteGeneratedOutputsBehavior {
+        return this.getValue('deleteGeneratedOutputsBehavior');
+    }
+
+    /**
      * Get the name of the subdirectory for converted files
      */
     getMarkdownSubdirectoryName(): string {
@@ -206,8 +219,15 @@ export class ConfigurationManager {
     /**
      * Update a configuration value
      */
-    async updateConfiguration(key: string, value: any, target?: vscode.ConfigurationTarget): Promise<void> {
-        const config = this.getConfig();
+    async updateConfiguration<K extends ConfigKey>(
+        key: K,
+        value: ConfigDefaults[K] | undefined,
+        target?: vscode.ConfigurationTarget,
+        resource?: vscode.Uri
+    ): Promise<void> {
+        const config = resource
+            ? vscode.workspace.getConfiguration(ConfigurationManager.SECTION, resource)
+            : this.getConfig();
         await config.update(key, value, target || vscode.ConfigurationTarget.Global);
     }
 
@@ -230,6 +250,7 @@ export class ConfigurationManager {
             copyTextFiles: this.shouldCopyTextFiles(),
             createProjectConfig: this.shouldCreateProjectConfig(),
             batchDetectionWindow: this.getBatchDetectionWindow(),
+            deleteGeneratedOutputsBehavior: this.getDeleteGeneratedOutputsBehavior(),
             supportedExtensions: this.getSupportedExtensions()
         };
     }
