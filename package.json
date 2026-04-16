@@ -2,7 +2,7 @@
   "name": "docugenius",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "2.5.5",
+  "version": "2.5.6",
   "publisher": "brucevan",
   "author": {
     "name": "brucevan",

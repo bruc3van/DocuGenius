@@ -2,7 +2,7 @@
 
 > 本地文档转 Markdown 工具，让 AI 编程工具直接读懂你的业务文档。
 
-[![Version](https://img.shields.io/badge/version-2.5.5-blue)](https://github.com/brucevanfdm/DocuGenius/releases)
+[![Version](https://img.shields.io/badge/version-2.5.6-blue)](https://github.com/brucevanfdm/DocuGenius/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 DocuGenius 是一个 VSCode 插件，将 Word、Excel、PowerPoint、PDF 转换为结构化的 Markdown，让 Trae AI、CodeBuddy、Cursor 等 AI 编程工具能够原生理解你的产品文档、数据表格和技术资料。
