@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### 主要更新
+
+- 修复 macOS 打包二进制架构校验缺失的问题：现在会在运行时跳过不兼容当前机器架构的内置转换器，并自动回退到系统 Python + `bin/converter.py`
+- 新增发布前 Mach-O 架构校验脚本，阻止将单架构 macOS 二进制误打进 VSIX；同时放开 `bin/darwin-x64` 与 `bin/darwin-arm64` 的打包白名单，兼容双目录分发方案
+- 修复 Windows DOCX 转换在遇到非法 OOXML 内部关系（例如 `Target="../NULL"`）时会被 `python-docx` 直接中断的问题：现在会先清理损坏关系，再继续执行高级解析与基础回退
+
 ## [2.5.6] - 2026-04-16
 
 ### 主要更新

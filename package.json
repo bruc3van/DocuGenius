@@ -214,10 +214,11 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run compile && npm run verify:package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "mocha out/**/*.test.js",
+    "verify:package": "node scripts/verify-packaging.js",
     "package": "vsce package",
     "publish": "vsce publish"
   },

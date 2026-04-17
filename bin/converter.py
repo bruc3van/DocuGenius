@@ -18,14 +18,19 @@ import importlib
 import logging
 import re
 import io
+import posixpath
 import struct
 import hashlib
+import tempfile
 import traceback
 import xml.etree.ElementTree as ET
+import zipfile
 
 SUPPORTED_EXTENSIONS = ['.docx', '.xlsx', '.pptx', '.pdf']
 DOCX_XML_NAMESPACES = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 DOCX_W_NS = DOCX_XML_NAMESPACES['w']
+OOXML_RELATIONSHIPS_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+OOXML_RELATIONSHIP_TAG = f'{{{OOXML_RELATIONSHIPS_NS}}}Relationship'
 
 # 图片提取相关常量
 IMAGE_OUTPUT_DIR_NAME = "images"
@@ -60,6 +65,8 @@ _IMAGE_SIGNATURES = {
 }
 
 logger = logging.getLogger(__name__)
+
+ET.register_namespace('', OOXML_RELATIONSHIPS_NS)
 
 _RE_COLLAPSE_WHITESPACE = re.compile(r"\s+")
 _RE_COLLAPSE_EXTRA_BLANK_LINES = re.compile(r"\n{3,}")
@@ -940,303 +947,500 @@ def _check_ooxml_decorative_flag(element, namespaces=None):
 
     return is_decorative, alt_text
 
-def _convert_docx_advanced(file_path, image_save_dir=None, image_rel_dir=None):
-    """转换 Word 文档，支持标题、格式、列表（含编号/层级）和图片提取"""
-    import docx
 
-    doc = docx.Document(file_path)
-    content = ""
-    num_to_abstract, abstract_levels = _build_docx_numbering_index(doc)
-    numbering_state = {}
-    image_counter = 0
-    base_name = os.path.splitext(os.path.basename(file_path))[0]
-    extracted_images = []
+def _normalize_ooxml_part_name(part_name):
+    """Normalize an OOXML package member name to a comparable ZIP entry path."""
+    if not part_name:
+        return None
 
-    def _extract_drawing_images(paragraph_element):
-        """
-        从段落 XML 中提取图片。
-        支持 w:drawing（内联和浮动）以及 mc:AlternateContent 包裹的图片。
+    normalized = part_name.replace('\\', '/').strip()
+    if not normalized:
+        return None
 
-        Returns:
-            图片 Markdown 字符串列表
-        """
-        nonlocal image_counter
+    normalized = posixpath.normpath(normalized.lstrip('/'))
+    if normalized in ('', '.'):
+        return None
+    return normalized
 
-        if image_save_dir is None:
-            return []
 
-        image_markdowns = []
-        ns = OOXML_IMAGE_NAMESPACES
+def _source_part_name_from_relationship_path(rel_path):
+    """Resolve a .rels entry path to its source part path."""
+    normalized_rel_path = _normalize_ooxml_part_name(rel_path)
+    if normalized_rel_path is None or not normalized_rel_path.endswith('.rels'):
+        return None
 
-        try:
-            p_xml = ET.fromstring(paragraph_element.xml)
-        except (ET.ParseError, AttributeError):
-            return []
+    if normalized_rel_path == '_rels/.rels':
+        return ''
 
-        # 查找所有 drawing 元素（直接和通过 mc:AlternateContent 包裹的）
-        drawings = []
-        # 直接 w:drawing
-        for drawing in p_xml.findall('.//w:drawing', ns):
-            drawings.append(drawing)
-        # mc:AlternateContent -> mc:Choice -> w:drawing
-        for alt_content in p_xml.findall('.//mc:AlternateContent', ns):
-            for choice in alt_content.findall('.//mc:Choice', ns):
-                for drawing in choice.findall('.//w:drawing', ns):
-                    if drawing not in drawings:
-                        drawings.append(drawing)
-            # mc:Fallback 中也可能有图片
-            for fallback in alt_content.findall('.//mc:Fallback', ns):
-                for drawing in fallback.findall('.//w:drawing', ns):
-                    if drawing not in drawings:
-                        drawings.append(drawing)
+    marker = '/_rels/'
+    if marker not in normalized_rel_path:
+        return None
 
-        for drawing in drawings:
-            # 获取 docPr 以检查装饰性标记和 alt text
-            doc_pr = drawing.find('.//wp:docPr', ns)
-            if doc_pr is None:
-                doc_pr = drawing.find('.//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}docPr')
+    prefix, rel_name = normalized_rel_path.split(marker, 1)
+    source_name = rel_name[:-5]
+    if not source_name:
+        return None
+    return _normalize_ooxml_part_name(f'{prefix}/{source_name}')
 
-            is_decorative = False
-            alt_text = ""
-            if doc_pr is not None:
-                is_decorative, alt_text = _check_ooxml_decorative_flag(doc_pr, ns)
 
-            # 获取图片数据：通过 a:blip 的 r:embed 属性
-            blip = drawing.find('.//a:blip', ns)
-            if blip is None:
+def _resolve_ooxml_relationship_target(source_part_name, target):
+    """Resolve an internal OOXML relationship target to a package member path."""
+    if target is None:
+        return None
+
+    normalized_target = target.replace('\\', '/').strip()
+    if not normalized_target:
+        return None
+
+    upper_target = normalized_target.upper()
+    if upper_target == 'NULL' or upper_target.endswith('/NULL') or normalized_target.startswith('#'):
+        return None
+
+    if ':' in normalized_target.split('/', 1)[0]:
+        return None
+
+    if normalized_target.startswith('/'):
+        candidate = normalized_target.lstrip('/')
+    else:
+        base_dir = posixpath.dirname(source_part_name or '')
+        candidate = posixpath.normpath(posixpath.join(base_dir, normalized_target))
+
+    candidate = _normalize_ooxml_part_name(candidate)
+    if candidate is None or candidate.startswith('../'):
+        return None
+    return candidate
+
+
+def _sanitize_docx_relationship_targets(file_path):
+    """
+    Create a temporary DOCX with invalid internal OOXML relationships removed.
+
+    python-docx aborts while opening a package when any internal relationship
+    target points to a missing member such as "../NULL". We repair that package
+    structure before handing it back to python-docx so the rest of the document
+    can still be converted.
+    """
+    temp_file_path = None
+
+    with zipfile.ZipFile(file_path, 'r') as source_zip:
+        package_members = {
+            _normalize_ooxml_part_name(name)
+            for name in source_zip.namelist()
+            if name and not name.endswith('/')
+        }
+        sanitized_entries = {}
+        package_changed = False
+
+        for member_name in source_zip.namelist():
+            data = source_zip.read(member_name)
+            normalized_name = _normalize_ooxml_part_name(member_name)
+
+            if not normalized_name or not normalized_name.endswith('.rels'):
+                sanitized_entries[member_name] = data
                 continue
 
-            embed_id = blip.get(f'{{{ns["r"]}}}embed') or blip.get('embed')
-            if not embed_id:
+            source_part_name = _source_part_name_from_relationship_path(normalized_name)
+            if source_part_name is None:
+                sanitized_entries[member_name] = data
                 continue
 
-            # 从 document part 的 related_parts 获取图片数据
             try:
-                image_part = doc.part.related_parts.get(embed_id)
-                if image_part is None:
+                root = ET.fromstring(data)
+            except ET.ParseError:
+                sanitized_entries[member_name] = data
+                continue
+
+            removed_targets = []
+            changed = False
+            for relationship in list(root.findall(OOXML_RELATIONSHIP_TAG)):
+                if relationship.get('TargetMode') == 'External':
                     continue
-                image_data = image_part.blob
-            except Exception:
-                logger.debug("Failed to read DOCX image part: %s", embed_id, exc_info=True)
-                continue
 
-            if not image_data:
-                continue
+                target = relationship.get('Target')
+                resolved_target = _resolve_ooxml_relationship_target(source_part_name, target)
+                if resolved_target is None or resolved_target not in package_members:
+                    removed_targets.append(target or '')
+                    root.remove(relationship)
+                    changed = True
 
-            # 装饰性过滤
-            if _is_decorative_image(image_data, is_decorative_flag=is_decorative):
-                continue
+            if changed:
+                package_changed = True
+                logger.warning(
+                    "Removed invalid OOXML relationships from %s (%s): %s",
+                    file_path,
+                    normalized_name,
+                    ', '.join(repr(item) for item in removed_targets),
+                )
+                data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
-            # 保存图片
-            image_counter += 1
-            rel_path = _save_extracted_image(
-                image_data, image_save_dir, image_rel_dir,
-                base_name, image_counter
-            )
-            if rel_path:
-                extracted_images.append(rel_path)
-                md = _make_image_markdown(rel_path, alt_text)
-                image_markdowns.append(md)
+            sanitized_entries[member_name] = data
 
-        return image_markdowns
-
-    def get_numbering_info(para):
-        """
-        尝试从段落的 numPr / numbering.xml 解析列表信息
-
-        Returns:
-            None 或 {'level': int, 'ordered': bool}
-        """
-        try:
-            num_id, level = _get_docx_paragraph_numpr(para)
-            if num_id is None:
-                return None
-
-            abstract_id = num_to_abstract.get(str(num_id))
-            levels = abstract_levels.get(abstract_id, {}) if abstract_id is not None else {}
-            level_def = levels.get(level) or levels.get(0) or {}
-            num_fmt = level_def.get('num_fmt')
-
-            style = getattr(para, "style", None)
-            style_name = getattr(style, "name", "") if style is not None else ""
-            style_id = getattr(style, "style_id", "") if style is not None else ""
-            style_hint = f"{style_name} {style_id}".lower()
-
-            if (num_fmt or "").lower() == "bullet":
-                ordered = False
-            elif (num_fmt or ""):
-                ordered = True
-            elif "bullet" in style_hint or "项目符号" in style_hint or "符号" in style_hint:
-                ordered = False
-            elif "number" in style_hint or "编号" in style_hint:
-                ordered = True
-            else:
-                ordered = True
-
-            return {
-                'level': max(level, 0),
-                'ordered': ordered,
-                'num_id': str(num_id),
-                'levels': levels,
-            }
-        except Exception:
+        if not package_changed:
             return None
 
-    def process_paragraph(para):
-        """处理单个段落，识别标题、列表和格式"""
-        if _is_docx_toc_paragraph(para):
-            return ""
-        if not para.text.strip():
-            return ""
+        with tempfile.NamedTemporaryFile(prefix='docugenius-docx-repair-', suffix='.docx', delete=False) as temp_file:
+            temp_file_path = temp_file.name
 
-        style = para.style if hasattr(para, "style") else None
-        style_name = style.name if style else ""
-        style_id = getattr(style, "style_id", "") if style else ""
-        heading_level = _get_docx_heading_level(style)
-        allow_paragraph_style = heading_level is None
+        try:
+            with zipfile.ZipFile(temp_file_path, 'w') as repaired_zip:
+                for member_name in source_zip.namelist():
+                    data = sanitized_entries[member_name]
+                    info = source_zip.getinfo(member_name)
+                    new_info = zipfile.ZipInfo(member_name, date_time=info.date_time)
+                    new_info.compress_type = info.compress_type
+                    new_info.comment = info.comment
+                    new_info.extra = info.extra
+                    new_info.create_system = info.create_system
+                    new_info.external_attr = info.external_attr
+                    new_info.internal_attr = info.internal_attr
+                    new_info.flag_bits = info.flag_bits
+                    repaired_zip.writestr(new_info, data)
+            return temp_file_path
+        except Exception:
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+            raise
 
-        # 先拼接富文本（列表项也需要保留粗体/斜体）
-        # 将相邻同格式的 run 合并后再添加 Markdown 标记，避免 **text1****text2** 碎片
-        groups = []
-        for run in para.runs:
-            text = run.text
-            if not text:
-                continue
-            fmt = (
-                _resolve_docx_run_font_flag(run, para, "bold", allow_paragraph_style=allow_paragraph_style),
-                _resolve_docx_run_font_flag(run, para, "italic", allow_paragraph_style=allow_paragraph_style),
-            )
-            if groups and groups[-1][0] == fmt:
-                groups[-1] = (fmt, groups[-1][1] + text)
-            else:
-                groups.append((fmt, text))
-        formatted_text = _compose_inline_markdown(groups)
-        text_value = _normalize_text(formatted_text.strip() or para.text.strip())
-        if not text_value:
-            return ""
 
-        # 识别标题层级
-        if heading_level is not None:
-            heading_prefix = "#" * min(heading_level, 6)  # Markdown最多支持6级标题
-            return f"{heading_prefix} {text_value}\n\n"
+def _open_docx_document(file_path):
+    """Open a DOCX document, repairing broken relationship targets when needed."""
+    import docx
 
-        # 检查是否是列表项
-        # 优先使用 numPr + numbering.xml 解析列表编号格式与层级
-        numbering_info = get_numbering_info(para)
-        if numbering_info:
-            indent = "    " * numbering_info["level"]
-            marker = _render_docx_list_marker(numbering_info, numbering_state)
-            return f"{indent}{marker} {text_value}\n"
+    try:
+        return docx.Document(file_path), None
+    except KeyError as error:
+        error_message = str(error)
+        if 'There is no item named' not in error_message:
+            raise
 
-        # 注意：python-docx对列表的支持有限，这里做基本处理（按样式兜底）
-        style_name_str = style_name or ""
-        style_id_str = style_id or ""
-        if (isinstance(style_id_str, str) and style_id_str.startswith("List")) or (
-            isinstance(style_name_str, str) and style_name_str.startswith("List")
-        ):
-            level = 0
-            m = re.search(r"(\d+)$", style_name_str.strip())
-            if m:
-                level = max(int(m.group(1)) - 1, 0)
-            indent = "    " * level
-            if "Bullet" in style_id_str or "Bullet" in style_name_str or style_name_str == "List Bullet":
-                return f"{indent}- {text_value}\n"
-            if "Number" in style_id_str or "Number" in style_name_str or style_name_str == "List Number":
-                return f"{indent}1. {text_value}\n"
+        repaired_docx_path = _sanitize_docx_relationship_targets(file_path)
+        if repaired_docx_path is None:
+            raise
 
-        return text_value + "\n\n"
+        logger.warning(
+            "Repaired broken DOCX package relationships for %s after open failure: %s",
+            file_path,
+            error_message,
+        )
 
-    # 处理文档中的所有元素（段落和表格）
-    # 需要按照它们在文档中的顺序处理
-    paragraphs_iter = iter(doc.paragraphs)
-    tables_iter = iter(doc.tables)
-    for element in doc.element.body:
-        # 处理段落
-        if element.tag.endswith('p'):
-            para = next(paragraphs_iter, None)
-            if para is not None:
-                content += process_paragraph(para)
-                # 提取段落中的图片
-                for img_md in _extract_drawing_images(para._p):
-                    content += f"\n{img_md}\n\n"
+        try:
+            return docx.Document(repaired_docx_path), repaired_docx_path
+        except Exception:
+            if os.path.exists(repaired_docx_path):
+                os.unlink(repaired_docx_path)
+            raise
 
-        # 处理表格
-        elif element.tag.endswith('tbl'):
-            table = next(tables_iter, None)
-            if table is not None:
-                # 使用底层 XML 读取真实网格，避免 python-docx 将合并单元格重复展开
-                all_rows_data = []
-                table_grid = getattr(getattr(table._tbl, "tblGrid", None), "gridCol_lst", None)
-                max_cols = len(table_grid) if table_grid is not None else 0
 
-                for tr in table._tbl.tr_lst:
-                    row_data = []
-                    for tc in tr.tc_lst:
-                        span = _get_docx_grid_span(tc)
-                        cell_text = "" if _is_docx_vertical_merge_continuation(tc) else _extract_docx_table_cell_text(tc)
-                        row_data.append(cell_text)
-                        if span > 1:
-                            row_data.extend([""] * (span - 1))
-                    all_rows_data.append(row_data)
+def _cleanup_temporary_docx(temp_docx_path):
+    """Delete a temporary repaired DOCX created for python-docx compatibility."""
+    if temp_docx_path and os.path.exists(temp_docx_path):
+        try:
+            os.unlink(temp_docx_path)
+        except OSError:
+            logger.debug("Failed to remove temporary DOCX: %s", temp_docx_path, exc_info=True)
 
-                if not max_cols:
-                    max_cols = max((len(r) for r in all_rows_data), default=0)
-                if max_cols == 0:
+
+def _convert_docx_advanced(file_path, image_save_dir=None, image_rel_dir=None):
+    """转换 Word 文档，支持标题、格式、列表（含编号/层级）和图片提取"""
+    doc, temp_docx_path = _open_docx_document(file_path)
+
+    try:
+        content = ""
+        num_to_abstract, abstract_levels = _build_docx_numbering_index(doc)
+        numbering_state = {}
+        image_counter = 0
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        extracted_images = []
+
+        def _extract_drawing_images(paragraph_element):
+            """
+            从段落 XML 中提取图片。
+            支持 w:drawing（内联和浮动）以及 mc:AlternateContent 包裹的图片。
+
+            Returns:
+                图片 Markdown 字符串列表
+            """
+            nonlocal image_counter
+
+            if image_save_dir is None:
+                return []
+
+            image_markdowns = []
+            ns = OOXML_IMAGE_NAMESPACES
+
+            try:
+                p_xml = ET.fromstring(paragraph_element.xml)
+            except (ET.ParseError, AttributeError):
+                return []
+
+            # 查找所有 drawing 元素（直接和通过 mc:AlternateContent 包裹的）
+            drawings = []
+            # 直接 w:drawing
+            for drawing in p_xml.findall('.//w:drawing', ns):
+                drawings.append(drawing)
+            # mc:AlternateContent -> mc:Choice -> w:drawing
+            for alt_content in p_xml.findall('.//mc:AlternateContent', ns):
+                for choice in alt_content.findall('.//mc:Choice', ns):
+                    for drawing in choice.findall('.//w:drawing', ns):
+                        if drawing not in drawings:
+                            drawings.append(drawing)
+                # mc:Fallback 中也可能有图片
+                for fallback in alt_content.findall('.//mc:Fallback', ns):
+                    for drawing in fallback.findall('.//w:drawing', ns):
+                        if drawing not in drawings:
+                            drawings.append(drawing)
+
+            for drawing in drawings:
+                # 获取 docPr 以检查装饰性标记和 alt text
+                doc_pr = drawing.find('.//wp:docPr', ns)
+                if doc_pr is None:
+                    doc_pr = drawing.find('.//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}docPr')
+
+                is_decorative = False
+                alt_text = ""
+                if doc_pr is not None:
+                    is_decorative, alt_text = _check_ooxml_decorative_flag(doc_pr, ns)
+
+                # 获取图片数据：通过 a:blip 的 r:embed 属性
+                blip = drawing.find('.//a:blip', ns)
+                if blip is None:
                     continue
-                for i, row_data in enumerate(all_rows_data):
-                    padded = row_data + [""] * (max_cols - len(row_data))
-                    content += "| " + " | ".join(padded) + " |\n"
-                    if i == 0:
-                        content += "| " + " | ".join(["---"] * max_cols) + " |\n"
-                content += "\n"
 
-    return content.strip(), extracted_images
+                embed_id = blip.get(f'{{{ns["r"]}}}embed') or blip.get('embed')
+                if not embed_id:
+                    continue
+
+                # 从 document part 的 related_parts 获取图片数据
+                try:
+                    image_part = doc.part.related_parts.get(embed_id)
+                    if image_part is None:
+                        continue
+                    image_data = image_part.blob
+                except Exception:
+                    logger.debug("Failed to read DOCX image part: %s", embed_id, exc_info=True)
+                    continue
+
+                if not image_data:
+                    continue
+
+                # 装饰性过滤
+                if _is_decorative_image(image_data, is_decorative_flag=is_decorative):
+                    continue
+
+                # 保存图片
+                image_counter += 1
+                rel_path = _save_extracted_image(
+                    image_data, image_save_dir, image_rel_dir,
+                    base_name, image_counter
+                )
+                if rel_path:
+                    extracted_images.append(rel_path)
+                    md = _make_image_markdown(rel_path, alt_text)
+                    image_markdowns.append(md)
+
+            return image_markdowns
+
+        def get_numbering_info(para):
+            """
+            尝试从段落的 numPr / numbering.xml 解析列表信息
+
+            Returns:
+                None 或 {'level': int, 'ordered': bool}
+            """
+            try:
+                num_id, level = _get_docx_paragraph_numpr(para)
+                if num_id is None:
+                    return None
+
+                abstract_id = num_to_abstract.get(str(num_id))
+                levels = abstract_levels.get(abstract_id, {}) if abstract_id is not None else {}
+                level_def = levels.get(level) or levels.get(0) or {}
+                num_fmt = level_def.get('num_fmt')
+
+                style = getattr(para, "style", None)
+                style_name = getattr(style, "name", "") if style is not None else ""
+                style_id = getattr(style, "style_id", "") if style is not None else ""
+                style_hint = f"{style_name} {style_id}".lower()
+
+                if (num_fmt or "").lower() == "bullet":
+                    ordered = False
+                elif (num_fmt or ""):
+                    ordered = True
+                elif "bullet" in style_hint or "项目符号" in style_hint or "符号" in style_hint:
+                    ordered = False
+                elif "number" in style_hint or "编号" in style_hint:
+                    ordered = True
+                else:
+                    ordered = True
+
+                return {
+                    'level': max(level, 0),
+                    'ordered': ordered,
+                    'num_id': str(num_id),
+                    'levels': levels,
+                }
+            except Exception:
+                return None
+
+        def process_paragraph(para):
+            """处理单个段落，识别标题、列表和格式"""
+            if _is_docx_toc_paragraph(para):
+                return ""
+            if not para.text.strip():
+                return ""
+
+            style = para.style if hasattr(para, "style") else None
+            style_name = style.name if style else ""
+            style_id = getattr(style, "style_id", "") if style else ""
+            heading_level = _get_docx_heading_level(style)
+            allow_paragraph_style = heading_level is None
+
+            # 先拼接富文本（列表项也需要保留粗体/斜体）
+            # 将相邻同格式的 run 合并后再添加 Markdown 标记，避免 **text1****text2** 碎片
+            groups = []
+            for run in para.runs:
+                text = run.text
+                if not text:
+                    continue
+                fmt = (
+                    _resolve_docx_run_font_flag(run, para, "bold", allow_paragraph_style=allow_paragraph_style),
+                    _resolve_docx_run_font_flag(run, para, "italic", allow_paragraph_style=allow_paragraph_style),
+                )
+                if groups and groups[-1][0] == fmt:
+                    groups[-1] = (fmt, groups[-1][1] + text)
+                else:
+                    groups.append((fmt, text))
+            formatted_text = _compose_inline_markdown(groups)
+            text_value = _normalize_text(formatted_text.strip() or para.text.strip())
+            if not text_value:
+                return ""
+
+            # 识别标题层级
+            if heading_level is not None:
+                heading_prefix = "#" * min(heading_level, 6)  # Markdown最多支持6级标题
+                return f"{heading_prefix} {text_value}\n\n"
+
+            # 检查是否是列表项
+            # 优先使用 numPr + numbering.xml 解析列表编号格式与层级
+            numbering_info = get_numbering_info(para)
+            if numbering_info:
+                indent = "    " * numbering_info["level"]
+                marker = _render_docx_list_marker(numbering_info, numbering_state)
+                return f"{indent}{marker} {text_value}\n"
+
+            # 注意：python-docx对列表的支持有限，这里做基本处理（按样式兜底）
+            style_name_str = style_name or ""
+            style_id_str = style_id or ""
+            if (isinstance(style_id_str, str) and style_id_str.startswith("List")) or (
+                isinstance(style_name_str, str) and style_name_str.startswith("List")
+            ):
+                level = 0
+                m = re.search(r"(\d+)$", style_name_str.strip())
+                if m:
+                    level = max(int(m.group(1)) - 1, 0)
+                indent = "    " * level
+                if "Bullet" in style_id_str or "Bullet" in style_name_str or style_name_str == "List Bullet":
+                    return f"{indent}- {text_value}\n"
+                if "Number" in style_id_str or "Number" in style_name_str or style_name_str == "List Number":
+                    return f"{indent}1. {text_value}\n"
+
+            return text_value + "\n\n"
+
+        # 处理文档中的所有元素（段落和表格）
+        # 需要按照它们在文档中的顺序处理
+        paragraphs_iter = iter(doc.paragraphs)
+        tables_iter = iter(doc.tables)
+        for element in doc.element.body:
+            # 处理段落
+            if element.tag.endswith('p'):
+                para = next(paragraphs_iter, None)
+                if para is not None:
+                    content += process_paragraph(para)
+                    # 提取段落中的图片
+                    for img_md in _extract_drawing_images(para._p):
+                        content += f"\n{img_md}\n\n"
+
+            # 处理表格
+            elif element.tag.endswith('tbl'):
+                table = next(tables_iter, None)
+                if table is not None:
+                    # 使用底层 XML 读取真实网格，避免 python-docx 将合并单元格重复展开
+                    all_rows_data = []
+                    table_grid = getattr(getattr(table._tbl, "tblGrid", None), "gridCol_lst", None)
+                    max_cols = len(table_grid) if table_grid is not None else 0
+
+                    for tr in table._tbl.tr_lst:
+                        row_data = []
+                        for tc in tr.tc_lst:
+                            span = _get_docx_grid_span(tc)
+                            cell_text = "" if _is_docx_vertical_merge_continuation(tc) else _extract_docx_table_cell_text(tc)
+                            row_data.append(cell_text)
+                            if span > 1:
+                                row_data.extend([""] * (span - 1))
+                        all_rows_data.append(row_data)
+
+                    if not max_cols:
+                        max_cols = max((len(r) for r in all_rows_data), default=0)
+                    if max_cols == 0:
+                        continue
+                    for i, row_data in enumerate(all_rows_data):
+                        padded = row_data + [""] * (max_cols - len(row_data))
+                        content += "| " + " | ".join(padded) + " |\n"
+                        if i == 0:
+                            content += "| " + " | ".join(["---"] * max_cols) + " |\n"
+                    content += "\n"
+
+        return content.strip(), extracted_images
+    finally:
+        _cleanup_temporary_docx(temp_docx_path)
 
 def _convert_docx_fallback(file_path):
     """使用 python-docx 的稳定高层 API 回退转换，避免复杂 OOXML 结构导致整份文档失败"""
-    import docx
+    doc, temp_docx_path = _open_docx_document(file_path)
 
-    doc = docx.Document(file_path)
-    content_parts = [f"# {os.path.basename(file_path)}", ""]
+    try:
+        content_parts = [f"# {os.path.basename(file_path)}", ""]
 
-    for paragraph in doc.paragraphs:
-        text = _normalize_text(paragraph.text, preserve_newlines=True)
-        if not text:
-            continue
+        for paragraph in doc.paragraphs:
+            text = _normalize_text(paragraph.text, preserve_newlines=True)
+            if not text:
+                continue
 
-        style = getattr(paragraph, "style", None)
-        heading_level = _get_docx_heading_level(style)
-        if heading_level is not None:
-            content_parts.append(f"{'#' * min(heading_level, 6)} {text}")
+            style = getattr(paragraph, "style", None)
+            heading_level = _get_docx_heading_level(style)
+            if heading_level is not None:
+                content_parts.append(f"{'#' * min(heading_level, 6)} {text}")
+                content_parts.append("")
+                continue
+
+            content_parts.append(_escape_plain_markdown_text(text))
             content_parts.append("")
-            continue
 
-        content_parts.append(_escape_plain_markdown_text(text))
-        content_parts.append("")
+        for table in doc.tables:
+            table_rows = []
+            for row in table.rows:
+                row_data = [_normalize_table_cell(cell.text) for cell in row.cells]
+                if any(cell.strip() for cell in row_data):
+                    table_rows.append(row_data)
 
-    for table in doc.tables:
-        table_rows = []
-        for row in table.rows:
-            row_data = [_normalize_table_cell(cell.text) for cell in row.cells]
-            if any(cell.strip() for cell in row_data):
-                table_rows.append(row_data)
+            if not table_rows:
+                continue
 
-        if not table_rows:
-            continue
+            max_cols = max(len(row) for row in table_rows)
+            normalized_rows = [row + [""] * (max_cols - len(row)) for row in table_rows]
 
-        max_cols = max(len(row) for row in table_rows)
-        normalized_rows = [row + [""] * (max_cols - len(row)) for row in table_rows]
+            for index, row_data in enumerate(normalized_rows):
+                content_parts.append("| " + " | ".join(row_data) + " |")
+                if index == 0:
+                    content_parts.append("| " + " | ".join(["---"] * max_cols) + " |")
+            content_parts.append("")
 
-        for index, row_data in enumerate(normalized_rows):
-            content_parts.append("| " + " | ".join(row_data) + " |")
-            if index == 0:
-                content_parts.append("| " + " | ".join(["---"] * max_cols) + " |")
-        content_parts.append("")
-
-    content = "\n".join(content_parts).strip()
-    if not content:
-        content = f"# {os.path.basename(file_path)}"
-    return content, []
+        content = "\n".join(content_parts).strip()
+        if not content:
+            content = f"# {os.path.basename(file_path)}"
+        return content, []
+    finally:
+        _cleanup_temporary_docx(temp_docx_path)
 
 def convert_docx(file_path, image_save_dir=None, image_rel_dir=None):
     """优先使用高级 DOCX 转换；异常时回退到稳定的基础转换并保留诊断日志"""

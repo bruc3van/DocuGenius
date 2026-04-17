@@ -9,6 +9,7 @@ import { COPYABLE_EXTENSIONS } from './constants';
 import { splitByHeaders, createIndexFile, collectRelatedOutputFileNames } from './utils';
 import { RuntimeManager, ConversionTrigger, RuntimeResolution } from './runtimeManager';
 import { pathContainsDirectorySegment } from './pathUtils';
+import { inspectMacOSBinaryArchitectures, normalizeMacOSProcessArchitecture } from './macosBinary';
 
 interface ConverterCommand {
     command: string;
@@ -16,6 +17,17 @@ interface ConverterCommand {
     supportsConversionOptions: boolean;
     description: string;
     env?: NodeJS.ProcessEnv;
+}
+
+interface ConverterCommandResolution {
+    commands: ConverterCommand[];
+    hasBuiltInConverter: boolean;
+    initialError?: Error;
+}
+
+interface PythonProbeResult {
+    executablePath: string;
+    version: string;
 }
 
 function runCommand(command: string, args: string[], timeout: number, env?: NodeJS.ProcessEnv): Promise<string> {
@@ -373,9 +385,10 @@ export class MarkitdownConverter {
     private async callConverter(filePath: string, trigger: ConversionTrigger, outputPath: string): Promise<string> {
         try {
             // Try embedded binary first, then fallback to system installations
-            const commands = await this.getConverterCommands(trigger);
+            const resolution = await this.getConverterCommands(trigger);
+            const commands = resolution.commands;
 
-            let lastError: Error | null = null;
+            let lastError: Error | null = resolution.initialError ?? null;
 
             for (const converterCommand of commands) {
                 try {
@@ -415,11 +428,7 @@ export class MarkitdownConverter {
             }
 
             // If all commands failed, throw helpful error
-            const hasBuiltInConverter = process.platform === 'win32'
-                ? fs.existsSync(this.context.asAbsolutePath('bin/converter.py'))
-                : fs.existsSync(this.context.asAbsolutePath(`bin/${process.platform}/docugenius-cli`));
-
-            if (hasBuiltInConverter) {
+            if (resolution.hasBuiltInConverter) {
                 const troubleshooting = process.platform === 'win32'
                     ? localize('converter.error.builtinWindows')
                     : localize('converter.error.builtinEmbedded');
@@ -545,15 +554,18 @@ export class MarkitdownConverter {
     /**
      * Get available converter commands in order of preference
      */
-    private async getConverterCommands(trigger: ConversionTrigger): Promise<ConverterCommand[]> {
+    private async getConverterCommands(trigger: ConversionTrigger): Promise<ConverterCommandResolution> {
         const platform = process.platform;
         const commands: ConverterCommand[] = [];
+        let hasBuiltInConverter = false;
+        let initialError: Error | undefined;
 
         if (platform === 'win32') {
             const embeddedConverterPath = this.context.asAbsolutePath('bin/converter.py');
             const runtime = await this.runtimeManager.ensureReadyForConversion(this.isBatchMode ? 'batch' : trigger);
 
             if (fs.existsSync(embeddedConverterPath) && runtime.ready && runtime.pythonPath) {
+                hasBuiltInConverter = true;
                 commands.push({
                     command: runtime.pythonPath,
                     args: [embeddedConverterPath],
@@ -565,13 +577,79 @@ export class MarkitdownConverter {
                 });
             }
 
-            return commands;
+            return {
+                commands,
+                hasBuiltInConverter: hasBuiltInConverter || fs.existsSync(embeddedConverterPath)
+            };
         }
 
-        // Simple approach: use platform-specific binary
-        const embeddedBinaryPath = this.context.asAbsolutePath(`bin/${platform}/docugenius-cli`);
+        if (platform === 'darwin') {
+            const targetArchitecture = normalizeMacOSProcessArchitecture(process.arch);
+            const embeddedBinaryPaths = this.getMacOSEmbeddedBinaryPaths();
 
+            for (const embeddedBinaryPath of embeddedBinaryPaths) {
+                if (!fs.existsSync(embeddedBinaryPath)) {
+                    continue;
+                }
+
+                hasBuiltInConverter = true;
+
+                try {
+                    const supportedArchitectures = inspectMacOSBinaryArchitectures(embeddedBinaryPath);
+                    if (targetArchitecture && !supportedArchitectures.includes(targetArchitecture)) {
+                        initialError = new Error(
+                            localize(
+                                'converter.error.macosArchitectureMismatch',
+                                targetArchitecture,
+                                supportedArchitectures.join(', '),
+                                path.basename(embeddedBinaryPath)
+                            )
+                        );
+                        console.warn(initialError.message);
+                        continue;
+                    }
+
+                    commands.push({
+                        command: embeddedBinaryPath,
+                        args: [],
+                        supportsConversionOptions: true,
+                        description: embeddedBinaryPath
+                    });
+                } catch (error) {
+                    const message = this.getErrorMessage(error);
+                    initialError = new Error(
+                        localize(
+                            'converter.error.macosBinaryInspectionFailed',
+                            path.basename(embeddedBinaryPath),
+                            message
+                        )
+                    );
+                    console.warn(initialError.message);
+                }
+            }
+
+            const embeddedConverterPath = this.context.asAbsolutePath('bin/converter.py');
+            if (fs.existsSync(embeddedConverterPath)) {
+                const pythonFallback = await this.getSystemPythonConverterCommand(embeddedConverterPath);
+                if (pythonFallback) {
+                    commands.push(pythonFallback);
+                } else if (hasBuiltInConverter && initialError) {
+                    initialError = new Error(
+                        `${initialError.message}\n${localize('converter.error.macosPythonFallbackUnavailable')}`
+                    );
+                }
+            }
+
+            return {
+                commands,
+                hasBuiltInConverter,
+                initialError
+            };
+        }
+
+        const embeddedBinaryPath = this.context.asAbsolutePath(`bin/${platform}/docugenius-cli`);
         if (fs.existsSync(embeddedBinaryPath)) {
+            hasBuiltInConverter = true;
             commands.push({
                 command: embeddedBinaryPath,
                 args: [],
@@ -580,7 +658,75 @@ export class MarkitdownConverter {
             });
         }
 
-        return commands;
+        return {
+            commands,
+            hasBuiltInConverter
+        };
+    }
+
+    private getMacOSEmbeddedBinaryPaths(): string[] {
+        const normalizedArchitecture = normalizeMacOSProcessArchitecture(process.arch);
+        const candidates = new Set<string>();
+
+        if (normalizedArchitecture === 'x86_64') {
+            candidates.add(this.context.asAbsolutePath('bin/darwin-x64/docugenius-cli'));
+        } else if (normalizedArchitecture === 'arm64') {
+            candidates.add(this.context.asAbsolutePath('bin/darwin-arm64/docugenius-cli'));
+        }
+
+        candidates.add(this.context.asAbsolutePath('bin/darwin/docugenius-cli'));
+        return Array.from(candidates);
+    }
+
+    private async getSystemPythonConverterCommand(embeddedConverterPath: string): Promise<ConverterCommand | undefined> {
+        const candidates = ['python3', 'python'];
+
+        for (const candidate of candidates) {
+            const probeResult = await this.probeSystemPython(candidate);
+            if (!probeResult) {
+                continue;
+            }
+
+            return {
+                command: candidate,
+                args: [embeddedConverterPath],
+                supportsConversionOptions: true,
+                description: `${candidate} (${probeResult.executablePath}, ${probeResult.version}) ${embeddedConverterPath}`
+            };
+        }
+
+        return undefined;
+    }
+
+    private async probeSystemPython(command: string): Promise<PythonProbeResult | undefined> {
+        try {
+            const stdout = await runCommand(
+                command,
+                [
+                    '-c',
+                    'import json, sys; print(json.dumps({"executable": sys.executable, "version": sys.version.split()[0], "major": sys.version_info[0], "minor": sys.version_info[1]}))'
+                ],
+                15000
+            );
+
+            const parsed = JSON.parse(stdout.trim()) as {
+                executable: string;
+                version: string;
+                major: number;
+                minor: number;
+            };
+
+            if (parsed.major > 3 || (parsed.major === 3 && parsed.minor >= 6)) {
+                return {
+                    executablePath: parsed.executable,
+                    version: parsed.version
+                };
+            }
+        } catch {
+            return undefined;
+        }
+
+        return undefined;
     }
 
     /**
