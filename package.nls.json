@@ -141,7 +141,7 @@
   "project.action.convertNow": "Convert Now",
   "project.action.convertLater": "Convert Later",
   "project.action.enable": "Enable",
-  "project.action.notEnable": "Don't Enable",
+  "project.action.notEnable": "Don't Ask Again",
   "project.action.remindLater": "Remind Later",
   "project.info.enabledReady": "DocuGenius is enabled for this project. You can right-click files to convert them or turn on auto-convert in settings.",
   "project.info.conversionStarted": "Document conversion has started. Output will be saved to the \"DocuGenius\" folder.",

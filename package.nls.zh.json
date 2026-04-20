@@ -141,7 +141,7 @@
   "project.action.convertNow": "立即转换",
   "project.action.convertLater": "稍后转换",
   "project.action.enable": "启用",
-  "project.action.notEnable": "不启用",
+  "project.action.notEnable": "不再提醒",
   "project.action.remindLater": "稍后提醒",
   "project.info.enabledReady": "DocuGenius 已为当前项目启用。你可以右键文件进行转换，或在设置中开启自动转换。",
   "project.info.conversionStarted": "已开始转换文档，输出将保存到 \"DocuGenius\" 文件夹中。",

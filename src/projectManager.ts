@@ -281,7 +281,7 @@ export class ProjectManager {
      */
     async showEnableDialog(): Promise<boolean> {
         const enableLabel = localize('project.action.enable');
-        const disableLabel = localize('project.action.notEnable');
+        const dontAskAgainLabel = localize('project.action.notEnable');
         const remindLaterLabel = localize('project.action.remindLater');
 
         const choice = await vscode.window.showInformationMessage(
@@ -291,7 +291,7 @@ export class ProjectManager {
                 detail: localize('project.prompt.enableDetail')
             },
             enableLabel,
-            disableLabel,
+            dontAskAgainLabel,
             remindLaterLabel
         );
 
@@ -314,7 +314,7 @@ export class ProjectManager {
                     }
                 }
                 return enabled;
-            case disableLabel:
+            case dontAskAgainLabel:
                 await this.saveWorkspaceProjectConfig(
                     vscode.workspace.workspaceFolders![0].uri.fsPath,
                     { ...ProjectManager.DEFAULT_CONFIG, enabled: false, lastActivated: new Date().toISOString() }
@@ -348,10 +348,9 @@ export class ProjectManager {
         }
 
         const rootPath = workspaceFolders[0].uri.fsPath;
-        const configPath = path.join(rootPath, ProjectManager.CONFIG_FILE_NAME);
-
-        // If project config file exists, don't show prompt
-        if (fs.existsSync(configPath)) {
+        // Respect any explicit project decision persisted either in .docugenius.json
+        // or in VS Code workspace storage, including "don't ask again".
+        if (this.hasPersistedProjectState(rootPath)) {
             return false;
         }
 
