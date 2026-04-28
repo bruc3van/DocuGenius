@@ -228,7 +228,7 @@ export class ConfigurationManager {
         const config = resource
             ? vscode.workspace.getConfiguration(ConfigurationManager.SECTION, resource)
             : this.getConfig();
-        await config.update(key, value, target || vscode.ConfigurationTarget.Global);
+        await config.update(key, value, target || vscode.ConfigurationTarget.Workspace);
     }
 
     /**
@@ -262,6 +262,7 @@ export class ConfigurationManager {
         const config = this.getConfig();
         for (const key of ConfigurationManager.RESETTABLE_KEYS) {
             await config.update(key, undefined, vscode.ConfigurationTarget.Global);
+            await config.update(key, undefined, vscode.ConfigurationTarget.Workspace);
         }
     }
 
@@ -282,6 +283,44 @@ export class ConfigurationManager {
             if (typeof ext !== 'string' || !ext.startsWith('.')) {
                 errors.push(`Invalid extension format: ${ext}. Extensions must start with a dot.`);
             }
+        }
+
+        // Validate numeric bounds (mirrors package.json constraints)
+        const imageMinSize = this.getImageMinSize();
+        if (imageMinSize < 1) {
+            errors.push(`imageMinSize must be >= 1, got ${imageMinSize}`);
+        }
+
+        const threshold = this.getDocumentSplittingThreshold();
+        if (threshold < 100000 || threshold > 2000000) {
+            errors.push(`documentSplittingThreshold must be between 100000 and 2000000, got ${threshold}`);
+        }
+
+        const batchWindow = this.getBatchDetectionWindow();
+        if (batchWindow < 1000 || batchWindow > 10000) {
+            errors.push(`batchDetectionWindow must be between 1000 and 10000, got ${batchWindow}`);
+        }
+
+        // Validate non-empty string settings
+        const subdirectoryName = this.getMarkdownSubdirectoryName();
+        if (typeof subdirectoryName !== 'string' || !subdirectoryName.trim()) {
+            errors.push('markdownSubdirectoryName must be a non-empty string');
+        }
+
+        const imageFolder = this.getImageOutputFolder();
+        if (typeof imageFolder !== 'string' || !imageFolder.trim()) {
+            errors.push('imageOutputFolder must be a non-empty string');
+        }
+
+        // Validate enum values
+        const validBatchBehaviors: BatchConversionBehavior[] = ['askForEach', 'askOnce', 'convertAll', 'skipAll'];
+        if (!validBatchBehaviors.includes(this.getBatchConversionBehavior())) {
+            errors.push(`Invalid batchConversionBehavior value`);
+        }
+
+        const validDeleteBehaviors: DeleteGeneratedOutputsBehavior[] = ['ask', 'delete', 'keep'];
+        if (!validDeleteBehaviors.includes(this.getDeleteGeneratedOutputsBehavior())) {
+            errors.push(`Invalid deleteGeneratedOutputsBehavior value`);
         }
 
         return {

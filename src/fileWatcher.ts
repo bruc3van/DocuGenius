@@ -31,9 +31,9 @@ export class FileWatcher implements vscode.Disposable {
         this.projectManager = projectManager;
         this.initializeWatchers();
 
-        // Listen for configuration changes
+        // Listen for configuration changes - only rebuild watchers when watcher-relevant settings change
         this.configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('documentConverter')) {
+            if (this.affectsWatcherPattern(e)) {
                 this.reinitializeWatchers();
             }
         });
@@ -130,6 +130,9 @@ export class FileWatcher implements vscode.Disposable {
                 return;
             }
 
+            // If a create event is already queued for this path, skip the change event.
+            // The pending flush will read the file at processing time, capturing any
+            // modifications made between create and flush.
             if (eventType === 'changed' && this.pendingCreatedFiles.has(filePath)) {
                 console.log(`Skipping change event because create event is already queued: ${filePath}`);
                 return;
@@ -248,6 +251,16 @@ export class FileWatcher implements vscode.Disposable {
     private reinitializeWatchers(): void {
         console.log('Reinitializing file watchers due to configuration change');
         this.initializeWatchers();
+    }
+
+    /**
+     * Check if a configuration change affects the watcher glob pattern.
+     * Only settings that change which files are watched require a rebuild.
+     */
+    private affectsWatcherPattern(e: vscode.ConfigurationChangeEvent): boolean {
+        return e.affectsConfiguration('documentConverter.copyTextFiles')
+            || e.affectsConfiguration('documentConverter.organizeInSubdirectory')
+            || e.affectsConfiguration('documentConverter.markdownSubdirectoryName');
     }
 
     private disposeWatchers(): void {
@@ -410,6 +423,7 @@ export class FileWatcher implements vscode.Disposable {
             return;
         }
 
+        // 'askOnce': batch confirmation when multiple files, single confirmation when one file
         if (behavior === 'askOnce' && existingFiles.length > 1) {
             const shouldConvert = await this.askForBatchConversionConfirmation(existingFiles);
             if (shouldConvert) {
@@ -418,6 +432,7 @@ export class FileWatcher implements vscode.Disposable {
             return;
         }
 
+        // 'askForEach': confirm each file individually (also handles 'askOnce' with a single file)
         await this.processCreatedFilesIndividually(existingFiles);
     }
 

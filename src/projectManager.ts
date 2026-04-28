@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { localize } from './i18n';
+import { SUPPORTED_CONVERT_EXTENSIONS } from './constants';
 
 export interface ProjectConfig {
     enabled: boolean;
@@ -116,7 +117,7 @@ export class ProjectManager {
     }
 
     /**
-     * 检查项目中是否有可转换的文档文件
+     * 检查项目中是否有可转换的文档文件（扫描根目录及一级子目录）
      */
     hasConvertibleFiles(rootPath?: string): boolean {
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -125,14 +126,31 @@ export class ProjectManager {
         }
 
         const targetPath = rootPath || workspaceFolders[0].uri.fsPath;
-        const supportedExtensions = ['.docx', '.xlsx', '.pptx', '.pdf'];
-        
+
         try {
-            const files = fs.readdirSync(targetPath);
-            return files.some(file => {
-                const ext = path.extname(file).toLowerCase();
-                return supportedExtensions.includes(ext);
-            });
+            const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isFile()) {
+                    const ext = path.extname(entry.name).toLowerCase();
+                    if (SUPPORTED_CONVERT_EXTENSIONS.includes(ext)) {
+                        return true;
+                    }
+                } else if (entry.isDirectory() && !entry.name.startsWith('.')) {
+                    // Scan one level of subdirectories, skipping hidden folders
+                    try {
+                        const subEntries = fs.readdirSync(path.join(targetPath, entry.name));
+                        for (const subEntry of subEntries) {
+                            const ext = path.extname(subEntry).toLowerCase();
+                            if (SUPPORTED_CONVERT_EXTENSIONS.includes(ext)) {
+                                return true;
+                            }
+                        }
+                    } catch {
+                        // Skip directories we can't read
+                    }
+                }
+            }
+            return false;
         } catch (error) {
             console.error('Error checking for convertible files:', error);
             return false;
@@ -177,16 +195,8 @@ export class ProjectManager {
                 );
 
                 if (choice === convertNowLabel) {
-                    // 触发文件夹转换命令
                     await vscode.commands.executeCommand('documentConverter.convertFolder', vscode.Uri.file(rootPath));
                 }
-            } else if (!showConvertPrompt) {
-                // 当 showConvertPrompt 为 false 时，不显示任何消息，由调用方处理
-                // 这避免了重复的消息提示
-            } else {
-                vscode.window.showInformationMessage(
-                    localize('project.info.enabledReady')
-                );
             }
             
             return true;
@@ -297,23 +307,7 @@ export class ProjectManager {
 
         switch (choice) {
             case enableLabel:
-                // 用户已经在第一个弹窗中表达了启用意图，直接启用并自动转换，无需再次询问
-                const enabled = await this.enableForProject(undefined, false);
-                if (enabled) {
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
-                    if (workspaceFolders && this.hasConvertibleFiles(workspaceFolders[0].uri.fsPath)) {
-                        // 直接执行转换，不再询问
-                        await vscode.commands.executeCommand('documentConverter.convertFolder', workspaceFolders[0].uri);
-                        vscode.window.showInformationMessage(
-                            localize('project.info.conversionStarted')
-                        );
-                    } else {
-                        vscode.window.showInformationMessage(
-                            localize('project.info.enabledReady')
-                        );
-                    }
-                }
-                return enabled;
+                return await this.enableForProject(undefined, true);
             case dontAskAgainLabel:
                 await this.saveWorkspaceProjectConfig(
                     vscode.workspace.workspaceFolders![0].uri.fsPath,
