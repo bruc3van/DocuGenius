@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [2.5.8] - 2026-04-28
+
+### 主要更新
+
+- 优化插件设置系统：统一项目启用流程的转换确认逻辑、扩展配置校验范围、改进文件监听器的配置变更响应粒度
+- 修复 `hasConvertibleFiles` 硬编码扩展名问题，改用常量引用；扩展扫描范围至一级子目录
+- 修复 `resetToDefaults` 未清除 Workspace 级别配置的问题
+- 将 `updateConfiguration` 默认写入目标从 Global 改为 Workspace，避免污染全局设置
+
 ## [2.5.7] - 2026-04-20
 
 ### 主要更新
